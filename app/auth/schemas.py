@@ -1,4 +1,10 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
+from datetime import datetime
+from typing import Optional
+
+# ==========================================
+# 1. ESQUEMAS PARA AUTENTICACIÓN (LOGIN)
+# ==========================================
 
 # Esquema para capturar la latitud y longitud enviadas por la app móvil
 class GeolocalizacionSchema(BaseModel):
@@ -24,3 +30,52 @@ class LoginResponse(BaseModel):
     status: str = "success"
     message: str = "Autenticación correcta"
     data: TokenDataResponse
+
+
+# ==========================================
+# 2. ESQUEMAS PARA CÓDIGOS QR
+# ==========================================
+
+class QRData(BaseModel):
+    qr_string_data: str
+    expires_in_seconds: int
+
+class QRResponse(BaseModel):
+    status: str = "success"
+    data: QRData
+
+
+# ==========================================
+# 3. ESQUEMAS PARA OFICINA (ALTA DE USUARIOS)
+# ==========================================
+
+class DatosContacto(BaseModel):
+    email: EmailStr = Field(..., examples=["juan@empresa.com"])
+    telefono: str = Field(..., examples=["3223456789"])
+
+class UsuarioCreateRequest(BaseModel):
+    nombre_usuario: str = Field(..., examples=["figaro_ortiz"])
+    password_plano: str = Field(..., examples=["Invernadero2026*"])
+    rol_asignado: str = Field(..., examples=["rol_rieg"])  # Se envía el ID del RBAC agrícola
+    datos_contacto: DatosContacto
+
+class UsuarioCreateData(BaseModel):
+    usuario_id: int
+    usuario: str
+    rol: str
+    status_sistema: str
+    fecha_creacion: datetime = Field(default_factory=datetime.utcnow)
+
+class UsuarioCreateResponse(BaseModel):
+    status: str = "success"
+    message: str = "Usuario creado y credenciales encriptadas correctamente"
+    data: UsuarioCreateData
+
+
+# ==========================================
+# 4. ESQUEMAS PARA OFICINA (PASS-MATCH)
+# ==========================================
+
+class PassMatchRequest(BaseModel):
+    usuario: str = Field(..., examples=["figaro_ortiz"])
+    password_a_verificar: str = Field(..., examples=["Invernadero2026*"])
