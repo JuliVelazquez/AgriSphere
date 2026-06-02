@@ -8,7 +8,6 @@ from app.auth.models import Usuario
 from app.auth.utils import (
     verificar_password, 
     crear_token_acceso, 
-    pwd_context, 
     PermitirRoles
 )
 from app.auth.schemas import (
@@ -40,14 +39,14 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
     usuario_db = result.scalar_one_or_none()
 
     # 2. Validaciones de seguridad pasivas
-    if not usuario_db or not usuario_db.activo:
+    if not usuario_db:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Credenciales incorrectas o usuario inactivo."
         )
 
     # 3. Verificar el hash de la contraseña usando bcrypt
-    if not verificar_password(payload.password, usuario_db.password_hash):
+    if not verificar_password(payload.password, usuario_db.contraseña):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Credenciales incorrectas."
@@ -57,7 +56,7 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
 
     # 5. Generar claims y firmar token JWT
     data_para_token = {
-        "sub": str(usuario_db.id),
+        "sub": str(usuario_db.id_usuario),
         "rol": usuario_db.rol.value if hasattr(usuario_db.rol, 'value') else str(usuario_db.rol),
         "device_id": payload.ui_device
     }
@@ -68,7 +67,7 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
         message="Autenticación correcta",
         data=TokenDataResponse(
             access_token=token_jwt,
-            usuario_id=usuario_db.id,
+            usuario_id=usuario_db.id_usuario,
             rol=data_para_token["rol"]
         )
     )

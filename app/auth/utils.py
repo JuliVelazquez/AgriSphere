@@ -1,29 +1,29 @@
 import os
+import bcrypt
 from typing import List
 from datetime import datetime, timedelta, timezone
 
 from jose import jwt
-from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from app.config import settings
 
 # ==========================================
-# 1. CONFIGURACIÓN DE CONTRASEÑAS (BCRYPT)
+# 1. CONFIGURACIÓN DE CONTRASEÑAS (BCRYPT NATIVO)
 # ==========================================
-pwd_context = CryptContext(
-    schemes=["bcrypt_sha256", "bcrypt"], 
-    deprecated="auto"
-)
-
 def verificar_password(password_plano: str, password_encriptado: str) -> bool:
-    """Compara la contraseña ingresada con la guardada en la BD."""
-    return pwd_context.verify(password_plano, password_encriptado)
+    """Compara la contraseña ingresada con la guardada en la BD usando bcrypt nativo."""
+    password_bytes = password_plano.encode('utf-8')
+    hash_bytes = password_encriptado.encode('utf-8')
+    return bcrypt.checkpw(password_bytes, hash_bytes)
 
 def encriptar_password(password: str) -> str:
-    """Genera un hash seguro."""
-    return pwd_context.hash(password)
+    """Genera un hash seguro usando bcrypt nativo."""
+    password_bytes = password.encode('utf-8')
+    sal = bcrypt.gensalt()
+    hash_bytes = bcrypt.hashpw(password_bytes, sal)
+    return hash_bytes.decode('utf-8')
 
 
 # ==========================================
@@ -64,28 +64,28 @@ class PermitirRoles:
 
     async def __call__(self, credenciales: HTTPAuthorizationCredentials = Depends(oauth2_scheme)):
         token = credenciales.credentials
-        
-        # Leemos las llaves maestras desde el entorno
-        secret_key = os.getenv("SECRET_KEY", "super_secret_key_2026_cambiar_esto_en_produccion")
-        algorithm = os.getenv("ALGORITHM", "HS256")
-        
+       
         try:
-            # 1. Abrimos el token JWT usando 'jose'
-            payload = jwt.decode(token, secret_key, algorithms=[algorithm])
+            # 1. Abrimos el token usando la configuración maestra de tu app
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
             rol_usuario = payload.get("rol")
             
             # 2. Verificamos si su rol está en la lista permitida
             if rol_usuario not in self.roles_permitidos:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Acceso denegado. Esta acción requiere uno de estos roles: {self.roles_permitidos}"
+                    detail=f"Acceso denegado. Tu rol es '{rol_usuario}', pero se requiere uno de estos: {self.roles_permitidos}"
                 )
             
             # Si todo está bien, dejamos pasar la petición
             return payload
             
-        except Exception:
-            # Si el token expiró o fue alterado
+        except HTTPException:
+            # Si es el error 403 de roles, lo dejamos salir tal cual
+            raise
+        except Exception as e:
+            # Si es un error del token, lo imprimimos en la terminal para verlo
+            print(f"FALLO DE TOKEN: {e}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token inválido o expirado. Por favor, inicia sesión nuevamente.",
