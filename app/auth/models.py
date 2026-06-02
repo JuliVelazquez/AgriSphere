@@ -1,9 +1,10 @@
-from sqlalchemy import Integer, String, Enum
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Integer, String, Enum, ForeignKey, JSON, DateTime, Boolean
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 import enum
+from datetime import datetime
 from app.database import Base
 
-# Roles oficiales de tu diseño AgriSphere
+# Roles oficiales para el sistema
 class UserRole(str, enum.Enum):
     USUARIO = "Usuario"
     JEFE_AREA = "Jefe Área"
@@ -15,5 +16,47 @@ class Usuario(Base):
     id_usuario: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     nombre: Mapped[str] = mapped_column(String, nullable=False)
     usuario: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False) # ej. empleado_01
-    contraseña: Mapped[str] = mapped_column(String, nullable=False) # Contraseña encriptada por passlib
+    contraseña: Mapped[str] = mapped_column(String, nullable=False) # Contraseña encriptada
     rol: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.USUARIO, nullable=False)
+
+    # Relación 1:1 hacia el Expediente (uselist=False garantiza que sea uno a uno)
+    expediente: Mapped["ExpedienteTrabajador"] = relationship(
+        "ExpedienteTrabajador", 
+        back_populates="usuario_seguridad", 
+        uselist=False
+    )
+
+class ExpedienteTrabajador(Base):
+    __tablename__ = "expedientes_trabajadores"
+
+    id_expediente: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    # Llave foránea que conecta con la tabla de seguridad
+    usuario_id: Mapped[int] = mapped_column(Integer, ForeignKey("usuarios.id_usuario", ondelete="CASCADE"), unique=True)
+    
+    # Datos Operativos
+    tipo_usuario: Mapped[str | None] = mapped_column(String, nullable=True)  # Empleado, Técnico, Visitante, Proveedor
+    estatus: Mapped[str | None] = mapped_column(String, default="base", nullable=True)
+    empresa_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Relación con tabla de empresas
+    empresa: Mapped[str | None] = mapped_column(String, nullable=True)
+    area_rol: Mapped[str | None] = mapped_column(String, nullable=True)
+    actividad: Mapped[str | None] = mapped_column(String, nullable=True)
+    access_level: Mapped[list | None] = mapped_column(JSON, nullable=True)  # Guarda arreglos como ["semillero", "invernadero_b"]
+
+    # Datos Personales
+    curp: Mapped[str | None] = mapped_column(String(18), unique=True, index=True, nullable=True)
+    telefono: Mapped[str | None] = mapped_column(String, nullable=True)
+    email: Mapped[str | None] = mapped_column(String, nullable=True)
+    contacto: Mapped[str | None] = mapped_column(String, nullable=True)  # Domicilio
+    cp: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # Salud y Políticas
+    salud: Mapped[str | None] = mapped_column(String, nullable=True)
+    acepta: Mapped[bool | None] = mapped_column(Boolean, default=False, nullable=True)
+    historial: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, nullable=True)
+
+    # Relación inversa hacia el modelo Usuario
+    usuario_seguridad: Mapped["Usuario"] = relationship(
+        "Usuario", 
+        back_populates="expediente"
+    )

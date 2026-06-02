@@ -4,11 +4,12 @@ from sqlalchemy.future import select
 import time
 
 from app.database import get_db
-from app.auth.models import Usuario  
+from app.auth.models import Usuario, ExpedienteTrabajador  
 from app.auth.utils import (
     verificar_password, 
     crear_token_acceso, 
-    PermitirRoles
+    PermitirRoles,
+    encriptar_password  #---> Importamos la función de utils para encriptar contraseñas
 )
 from app.auth.schemas import (
     LoginRequest, 
@@ -19,7 +20,8 @@ from app.auth.schemas import (
     UsuarioCreateRequest,
     UsuarioCreateResponse,
     UsuarioCreateData,
-    PassMatchRequest
+    PassMatchRequest,
+    TrabajadorCreate  #--> Esquema para la creación de trabajadores desde Recursos Humanos, que incluye datos para ambas tablas (usuarios y expedientes_trabajadores)
 )
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
@@ -52,7 +54,7 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
             detail="Credenciales incorrectas."
         )
 
-    # 4. Procesar telemetría opcional (Aquí se puede guardar payload.geolocalizacion en logs si se requiere)
+    # 4. Procesar telemetría opcional
 
     # 5. Generar claims y firmar token JWT
     data_para_token = {
@@ -94,9 +96,6 @@ async def generar_payload_qr(current_user: dict = Depends(PermitirRoles(["Usuari
     )
 
 
-# ==========================================
-# 3. OPERACIONES DE OFICINA (ALTA DE USUARIOS)
-# ==========================================
 # ==========================================
 # 3. OPERACIONES DE OFICINA (ALTA DE USUARIOS)
 # ==========================================
@@ -168,4 +167,60 @@ async def verificar_pass_match(payload: PassMatchRequest, db: AsyncSession = Dep
         "status": "success",
         "match": coincide,
         "message": "La contraseña coincide con los registros." if coincide else "La contraseña NO coincide."
+    }
+
+@router.post("/trabajador", status_code=201)
+async def registrar_trabajador(payload: TrabajadorCreate, db: AsyncSession = Depends(get_db)):
+    """
+    ### Alta de Trabajador y Expediente (Recursos Humanos)
+    Recibe el payload masivo, divide la información para proteger las credenciales
+    y almacena el expediente operativo del trabajador.
+    """
+    # 1. Encriptar la contraseña de forma segura (usando tu implementación nativa)
+    hashed_password = encriptar_password(payload.contraseña)
+    
+    # 2. Crear el registro en la tabla de Seguridad ('usuarios')
+    nuevo_usuario = Usuario(
+        nombre=payload.nombre_completo,
+        usuario=payload.nombre_usuario,
+        contraseña=hashed_password,
+        rol=payload.rol_asignado
+    )
+    
+    db.add(nuevo_usuario)
+    # Hacemos un flush para que PostgreSQL le asigne un ID al usuario sin cerrar la transacción
+    await db.flush() 
+    
+    # 3. Crear el registro en la tabla de Recursos Humanos ('expedientes_trabajadores')
+    nuevo_expediente = ExpedienteTrabajador(
+        usuario_id=nuevo_usuario.id_usuario, # Aquí usamos el ID recién generado
+        tipo_usuario=payload.expediente.tipo_usuario,
+        estatus=payload.expediente.estatus,
+        empresa_id=payload.expediente.empresa_id,
+        empresa=payload.expediente.empresa,
+        area_rol=payload.expediente.area_rol,
+        actividad=payload.expediente.actividad,
+        access_level=payload.expediente.access_level,
+        curp=payload.expediente.curp,
+        telefono=payload.expediente.telefono,
+        email=payload.expediente.email,
+        contacto=payload.expediente.contacto,
+        cp=payload.expediente.cp,
+        salud=payload.expediente.salud,
+        acepta=payload.expediente.acepta,
+        historial=payload.expediente.historial
+    )
+    
+    db.add(nuevo_expediente)
+    
+    # 4. Confirmar los cambios en ambas tablas al mismo tiempo
+    await db.commit()
+    
+    return {
+        "status": "success",
+        "message": "Trabajador y expediente creados correctamente",
+        "data": {
+            "usuario_id": nuevo_usuario.id_usuario,
+            "usuario": nuevo_usuario.usuario
+        }
     }
