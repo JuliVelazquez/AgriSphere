@@ -12,12 +12,23 @@ class GeolocalizacionSchema(BaseModel):
     longitud: float = Field(..., examples=[-104.8945])
 
 # Esquema exacto para la petición de Login (Request)
-class LoginRequest(BaseModel):
-    usuario: str = Field(..., examples=["empleado_01"])
-    password: str = Field(..., examples=["password_seguro_2026"])
-    ui_device: str = Field(..., examples=["Device-Model-Plus"])
-    geolocalizacion: GeolocalizacionSchema
+from pydantic import BaseModel, Field
 
+class LoginRequest(BaseModel):
+    usuario: str = Field(..., examples=["julissa_rieg"])
+    password: str = Field(..., examples=["lalala"])
+    ui_device: str = Field(default="web_browser", examples=["v_chrome_windows"])
+
+    # informacion de usuario para la prueba
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "usuario": "julissa_rieg",
+                "password": "lalala",
+                "ui_device": "web_browser"
+            }
+        }
+    }
 # Esquema para los datos que regresaremos dentro del Token (Data Payload)
 class TokenDataResponse(BaseModel):
     access_token: str

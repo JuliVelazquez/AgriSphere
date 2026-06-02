@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import base64
 import bcrypt
 from sqlalchemy.future import select
 from app.database import AsyncSessionLocal, engine
@@ -58,7 +60,7 @@ async def poblar_base_datos():
             else:
                 print("   o La empresa principal ya existe en los registros.")
                 
-    print("🏁 ¡Sembrado de datos completado exitosamente!")
+    print("¡Sembrado de datos completado exitosamente!")
 
 if __name__ == "__main__":
     asyncio.run(poblar_base_datos())

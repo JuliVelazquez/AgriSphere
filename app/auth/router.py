@@ -52,7 +52,7 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
             detail="Credenciales incorrectas."
         )
 
-    # 4. Procesar telemetría opcional (Aquí puedes guardar payload.geolocalizacion en logs si se requiere)
+    # 4. Procesar telemetría opcional (Aquí se puede guardar payload.geolocalizacion en logs si se requiere)
 
     # 5. Generar claims y firmar token JWT
     data_para_token = {
@@ -77,12 +77,13 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
 # 2. OPERACIONES DE INGRESO (TRABAJADOR / QR)
 # ==========================================
 @router.get("/usuarios/me/qr", response_model=QRResponse)
-async def generar_payload_qr(current_user: dict = Depends(PermitirRoles(["rol_rieg", "rol_fito", "rol_prod", "rol_mant", "rol_empa", "rol_alma", "rol_moni"]))):
+async def generar_payload_qr(current_user: dict = Depends(PermitirRoles(["Usuario", "rol_rieg", "rol_fito", "rol_prod", "rol_mant", "rol_empa", "rol_alma", "rol_moni"]))):
     """
     B. Operaciones de Ingreso: Genera el string encriptado para el QR efímero del trabajador.
     """
     timestamp_actual = int(time.time())
-    # Estructura requerida: usr_id:timestamp:firma
+    
+    # Amarramos el QR al ID real del token descodificado
     qr_string = f"usr_{current_user['sub']}:timestamp_{timestamp_actual}:sig_ab89f3"
     
     return QRResponse(
@@ -93,6 +94,9 @@ async def generar_payload_qr(current_user: dict = Depends(PermitirRoles(["rol_ri
     )
 
 
+# ==========================================
+# 3. OPERACIONES DE OFICINA (ALTA DE USUARIOS)
+# ==========================================
 # ==========================================
 # 3. OPERACIONES DE OFICINA (ALTA DE USUARIOS)
 # ==========================================
@@ -111,17 +115,16 @@ async def crear_usuario_oficina(payload: UsuarioCreateRequest, db: AsyncSession 
             detail="El nombre de usuario ya está registrado."
         )
 
-    # Generar el hash de la contraseña usando la configuración de Bcrypt
-    hash_seguro = pwd_context.hash(payload.password_plano)
+    # Usamos la función nativa limpia de utils en lugar de pwd_context
+    from app.auth.utils import encriptar_password
+    hash_seguro = encriptar_password(payload.password_plano)
     
-    # Mapear los datos hacia el modelo de SQLAlchemy
+    # Mapeamos los nombres de columna de PostgreSQL 
     nuevo_usuario = Usuario(
         usuario=payload.nombre_usuario,
-        nombre_real=payload.nombre_usuario.replace("_", " ").title(),
-        correo=payload.datos_contacto.email,
-        password_hash=hash_seguro,
-        rol_id=payload.rol_asignado,  # Guarda el ID del RBAC (ej: rol_rieg)
-        activo=True
+        nombre=payload.nombre_usuario.replace("_", " ").title(),
+        contraseña=hash_seguro,
+        rol="USUARIO"  # <-- Cambiamos payload.rol_asignado por "USUARIO" temporalmente
     )
     
     db.add(nuevo_usuario)
@@ -131,10 +134,10 @@ async def crear_usuario_oficina(payload: UsuarioCreateRequest, db: AsyncSession 
     return UsuarioCreateResponse(
         message="Usuario creado y credenciales encriptadas correctamente",
         data=UsuarioCreateData(
-            usuario_id=nuevo_usuario.id,
+            usuario_id=nuevo_usuario.id_usuario,                 # Cambiado de .id a .id_usuario
             usuario=nuevo_usuario.usuario,
-            rol=nuevo_usuario.rol_id,
-            status_sistema=nuevo_usuario.status_sistema
+            rol=nuevo_usuario.rol.value if hasattr(nuevo_usuario.rol, 'value') else str(nuevo_usuario.rol),
+            status_sistema="Activo"                              # Ajustado a string simple si no existe el campo
         )
     )
 
