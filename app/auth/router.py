@@ -4,7 +4,8 @@ from sqlalchemy.future import select
 import time
 
 from app.database import get_db
-from app.auth.models import Usuario, ExpedienteTrabajador  
+from app.auth.models import Usuario, ExpedienteTrabajador
+from app.modulos.empresa.models import Empresa
 from app.auth.utils import (
     verificar_password, 
     crear_token_acceso, 
@@ -22,7 +23,8 @@ from app.auth.schemas import (
     UsuarioCreateResponse,
     UsuarioCreateData,
     PassMatchRequest,
-    TrabajadorCreate  #--> Esquema para la creación de trabajadores desde Recursos Humanos, que incluye datos para ambas tablas (usuarios y expedientes_trabajadores)
+    TrabajadorCreate,  #--> Esquema para la creación de trabajadores desde Recursos Humanos, que incluye datos para ambas tablas (usuarios y expedientes_trabajadores)
+    EmpresaConfig
 )
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
@@ -248,4 +250,44 @@ async def registrar_trabajador(payload: TrabajadorCreate, db: AsyncSession = Dep
             "usuario_id": nuevo_usuario.id_usuario,
             "usuario": nuevo_usuario.usuario
         }
+    }
+
+# ==========================================
+# CONFIGURACIÓN DE EMPRESA (GEOCERCA)
+# ==========================================
+@router.post("/empresa/parametros", summary="Configurar parámetros y Geocerca")
+async def configurar_empresa(payload: EmpresaConfig, db: AsyncSession = Depends(get_db)):
+    """
+    Recibe los datos desde la vista de TI/RH para configurar 
+    las coordenadas centrales y el radio de tolerancia del invernadero.
+    """
+    # 1. Buscamos si ya existe una configuración guardada
+    query = select(Empresa).limit(1)
+    result = await db.execute(query)
+    empresa_db = result.scalar_one_or_none()
+
+    if empresa_db:
+        # 2A. Si ya existe, actualizamos usando los nombres reales de tu BD
+        empresa_db.nombre = payload.nombre
+        empresa_db.geocerca_latitud = payload.geocerca_latitud
+        empresa_db.geocerca_longitud = payload.geocerca_longitud
+        empresa_db.geocerca_radio_metros = payload.geocerca_radio_metros
+        mensaje = "Parámetros y geocerca actualizados correctamente."
+    else:
+        # 2B. Si no existe, creamos el registro
+        nueva_empresa = Empresa(
+            nombre=payload.nombre,
+            geocerca_latitud=payload.geocerca_latitud,
+            geocerca_longitud=payload.geocerca_longitud,
+            geocerca_radio_metros=payload.geocerca_radio_metros
+        )
+        db.add(nueva_empresa)
+        mensaje = "Parámetros de empresa creados por primera vez."
+
+    await db.commit()
+    
+    return {
+        "status": "success",
+        "message": mensaje,
+        "data": payload.model_dump()
     }

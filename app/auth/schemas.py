@@ -126,3 +126,23 @@ class TrabajadorCreate(BaseModel):
     
     # Datos que irán a la tabla 'expedientes_trabajadores'
     expediente: ExpedienteBase
+
+# ==========================================
+# 6. ESQUEMAS PARA CONFIGURACIÓN DE EMPRESA
+# ==========================================
+class EmpresaConfig(BaseModel):
+    nombre: str = Field(..., examples=["Invernadero Marquesado"])
+    geocerca_latitud: float = Field(..., examples=[21.5041])
+    geocerca_longitud: float = Field(..., examples=[-104.8945])
+    geocerca_radio_metros: int = Field(default=50, description="Radio de la geocerca en metros", examples=[50])
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "nombre": "Invernadero Marquesado",
+                "geocerca_latitud": 21.5041,
+                "geocerca_longitud": -104.8945,
+                "geocerca_radio_metros": 50
+            }
+        }
+    }
