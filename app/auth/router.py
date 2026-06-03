@@ -9,7 +9,8 @@ from app.auth.utils import (
     verificar_password, 
     crear_token_acceso, 
     PermitirRoles,
-    encriptar_password  #---> Importamos la función de utils para encriptar contraseñas
+    encriptar_password,  #---> Importamos la función de utils para encriptar contraseñas
+    calcular_distancia_metros  #--> Importamos la función para calcular distancia entre coordenadas
 )
 from app.auth.schemas import (
     LoginRequest, 
@@ -54,7 +55,31 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
             detail="Credenciales incorrectas."
         )
 
-    # 4. Procesar telemetría opcional
+    # 4. Procesar telemetría opcional y Validación de Geo-cerca
+    if payload.ui_device == "app_movil":
+        if not payload.ubicacion:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, 
+                detail="Se requiere ubicación GPS activa para acceder desde la aplicación móvil."
+            )
+
+        # Coordenadas maestras de la empresa (Después leeremos el de la BD, por ahora usamos Tepic)
+        LAT_EMPRESA = 21.5041
+        LON_EMPRESA = -104.8945
+        RADIO_PERMITIDO = 50.0  # El trabajador debe estar a menos de 50 metros
+        
+        distancia = calcular_distancia_metros(
+            payload.ubicacion.latitud,
+            payload.ubicacion.longitud,
+            LAT_EMPRESA,
+            LON_EMPRESA
+        )
+
+        if distancia > RADIO_PERMITIDO:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Acceso denegado. Estás a {int(distancia)} metros del Invernadero. Acércate a la zona de trabajo."
+            )
 
     # 5. Generar claims y firmar token JWT
     data_para_token = {
@@ -176,7 +201,7 @@ async def registrar_trabajador(payload: TrabajadorCreate, db: AsyncSession = Dep
     Recibe el payload masivo, divide la información para proteger las credenciales
     y almacena el expediente operativo del trabajador.
     """
-    # 1. Encriptar la contraseña de forma segura (usando tu implementación nativa)
+    # 1. Encriptar la contraseña de forma segura (usando ==implementación nativa)
     hashed_password = encriptar_password(payload.contraseña)
     
     # 2. Crear el registro en la tabla de Seguridad ('usuarios')

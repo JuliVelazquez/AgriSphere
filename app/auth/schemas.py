@@ -17,6 +17,9 @@ class LoginRequest(BaseModel):
     password: str = Field(..., examples=["lalala"])
     ui_device: str = Field(default="web_browser", examples=["v_chrome_windows"])
 
+    # coordenadas opcionales para la validación de geo-cerca
+    ubicacion: Optional[GeolocalizacionSchema] = None
+
     # informacion de usuario para la prueba
     model_config = {
         "json_schema_extra": {
