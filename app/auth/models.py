@@ -16,6 +16,7 @@ class Usuario(Base):
     id_usuario: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     nombre: Mapped[str] = mapped_column(String, nullable=False)
     usuario: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False) # ej. empleado_01
+    correo: Mapped[str | None] = mapped_column(String, unique=True, index=True, nullable=True)
     contraseña: Mapped[str] = mapped_column(String, nullable=False) # Contraseña encriptada
     rol: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.USUARIO, nullable=False)
 
