@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, String, Enum, ForeignKey, JSON, DateTime, Boolean, Column, Float, DateTime, func
+from sqlalchemy import Date, Integer, String, Enum, ForeignKey, JSON, DateTime, Boolean, Column, Float, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 import enum
 from datetime import datetime
@@ -79,3 +79,12 @@ class RegistroAsistencia(Base):
     
     # Almacenará 'A tiempo', 'Retardo', o 'Justificado' para el reporte
     status = Column(String, nullable=False)
+
+class PermisoAsistencia(Base):
+    __tablename__ = "permisos_asistencia"
+
+    id = Column(Integer, primary_key=True, index=True)
+    worker_id = Column(Integer, index=True, nullable=False)
+    fecha_permiso = Column(Date, nullable=False)
+    motivo = Column(String, nullable=False) # Ej: "Enfermedad", "Vacaciones", "Asunto Familiar"
+    registrado_en = Column(DateTime(timezone=True), server_default=func.now())

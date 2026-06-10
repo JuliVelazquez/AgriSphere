@@ -6,19 +6,31 @@ from sqlalchemy import select, desc, cast, Date
 from datetime import datetime, date, time, timedelta
 from typing import Optional
 
+# 1. Base de datos
 from app.database import get_db
-from app.auth.models import Usuario, ExpedienteTrabajador, RegistroAsistencia
+
+# 2. Modelos
+from app.auth.models import (
+    Usuario, 
+    ExpedienteTrabajador, 
+    RegistroAsistencia, 
+    PermisoAsistencia
+)
 from app.modulos.empresa.models import Empresa
+
+# 3. Utilidades
 from app.auth.utils import (
     verificar_password, 
     crear_token_acceso, 
     PermitirRoles,
-    encriptar_password,  #---> Importamos la función de utils para encriptar contraseñas
-    calcular_distancia_metros  #--> Importamos la función para calcular distancia entre coordenadas
+    encriptar_password,
+    calcular_distancia_metros
 )
+
+# 4. Esquemas
 from app.auth.schemas import (
     LoginRequest, 
-    LoginResponse, 
+    LoginResponse,
     TokenDataResponse, 
     QRResponse, 
     QRData,
@@ -26,10 +38,12 @@ from app.auth.schemas import (
     UsuarioCreateResponse,
     UsuarioCreateData,
     PassMatchRequest,
-    TrabajadorCreate,  #--> Esquema para la creación de trabajadores desde Recursos Humanos, que incluye datos para ambas tablas (usuarios y expedientes_trabajadores)
+    TrabajadorCreate,
     EmpresaConfig,
     AsistenciaRegistrarRequest,
-    ReporteAsistenciaResponse
+    ReporteAsistenciaResponse,
+    PermisoCreateRequest,
+    PermisoResponse
 )
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
@@ -417,32 +431,46 @@ async def obtener_reporte_asistencia(
             primer_check_in = next((m for m in movimientos if m.event == "check-in"), None)
             ultimo_check_out = next((m for m in reversed(movimientos) if m.event == "check-out"), None)
 
+            # Verificamos si existe un permiso para este trabajador en este día
+            query_permiso = select(PermisoAsistencia).where(
+                PermisoAsistencia.worker_id == w_id,
+                PermisoAsistencia.fecha_permiso == dia
+            )
+            res_permiso = await db.execute(query_permiso)
+            existe_permiso = res_permiso.scalars().first() is not None
+
             min_retardo = 0
             min_salida_ant = 0
             horas_totales = 0.0
             horas_ordinarias = 0.0
             horas_extra = 0.0
 
-            if primer_check_in:
-                t_in = primer_check_in.timestamp.time()
-                if t_in > HORA_ENTRADA:
-                    dt_in = datetime.combine(dia, t_in)
-                    dt_entrada = datetime.combine(dia, HORA_ENTRADA)
-                    min_retardo = int((dt_in - dt_entrada).total_seconds() / 60)
+            if existe_permiso:
+                min_retardo = 0
+                min_salida_ant = 0
 
-            if ultimo_check_out:
-                t_out = ultimo_check_out.timestamp.time()
-                if t_out < HORA_SALIDA:
-                    dt_out = datetime.combine(dia, t_out)
-                    dt_salida = datetime.combine(dia, HORA_SALIDA)
-                    min_salida_ant = int((dt_salida - dt_out).total_seconds() / 60)
+            else:
 
-            if primer_check_in and ultimo_check_out:
-                delta = ultimo_check_out.timestamp - primer_check_in.timestamp
-                horas_totales = round(delta.total_seconds() / 3600, 2)
-                
-                horas_ordinarias = min(8.0, horas_totales)
-                horas_extra = max(0.0, horas_totales - 8.0)
+                if primer_check_in:
+                    t_in = primer_check_in.timestamp.time()
+                    if t_in > HORA_ENTRADA:
+                        dt_in = datetime.combine(dia, t_in)
+                        dt_entrada = datetime.combine(dia, HORA_ENTRADA)
+                        min_retardo = int((dt_in - dt_entrada).total_seconds() / 60)
+
+                if ultimo_check_out:
+                    t_out = ultimo_check_out.timestamp.time()
+                    if t_out < HORA_SALIDA:
+                        dt_out = datetime.combine(dia, t_out)
+                        dt_salida = datetime.combine(dia, HORA_SALIDA)
+                        min_salida_ant = int((dt_salida - dt_out).total_seconds() / 60)
+
+                if primer_check_in and ultimo_check_out:
+                    delta = ultimo_check_out.timestamp - primer_check_in.timestamp
+                    horas_totales = round(delta.total_seconds() / 3600, 2)
+                    
+                    horas_ordinarias = min(8.0, horas_totales)
+                    horas_extra = max(0.0, horas_totales - 8.0)
 
             reporte_final.append({
                 "fecha": dia,
@@ -458,3 +486,24 @@ async def obtener_reporte_asistencia(
         "status": "success",
         "data": reporte_final
     }
+
+@router.post("/permisos", response_model=PermisoResponse)
+async def registrar_permiso(
+    request: PermisoCreateRequest,
+    db: AsyncSession = Depends(get_db)
+    ):
+    # Creamos el objeto con los datos que llegan de la petición
+    nuevo_permiso = PermisoAsistencia(
+        worker_id=request.worker_id,
+        fecha_permiso=request.fecha_permiso,
+        motivo=request.motivo
+    )
+        
+    # Guardamos en PostgreSQL
+    db.add(nuevo_permiso)
+    await db.commit()
+        
+    return {
+        "status": "success",
+        "message": f"Permiso por '{request.motivo}' registrado exitosamente para el trabajador {request.worker_id}."
+        }

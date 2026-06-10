@@ -167,3 +167,12 @@ class ReporteAsistenciaRow(BaseModel):
 class ReporteAsistenciaResponse(BaseModel):
     status: str
     data: List[ReporteAsistenciaRow]
+
+class PermisoCreateRequest(BaseModel):
+    worker_id: int
+    fecha_permiso: date
+    motivo: str # Ej: "Vacaciones", "Médico", "Falta Justificada"
+
+class PermisoResponse(BaseModel):
+    status: str
+    message: str
