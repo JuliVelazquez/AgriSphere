@@ -1,7 +1,10 @@
+from collections import defaultdict
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
-from datetime import datetime, date, time
+from sqlalchemy import select, desc, cast, Date
+from datetime import datetime, date, time, timedelta
+from typing import Optional
 
 from app.database import get_db
 from app.auth.models import Usuario, ExpedienteTrabajador, RegistroAsistencia
@@ -25,7 +28,8 @@ from app.auth.schemas import (
     PassMatchRequest,
     TrabajadorCreate,  #--> Esquema para la creación de trabajadores desde Recursos Humanos, que incluye datos para ambas tablas (usuarios y expedientes_trabajadores)
     EmpresaConfig,
-    AsistenciaRegistrarRequest
+    AsistenciaRegistrarRequest,
+    ReporteAsistenciaResponse
 )
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
@@ -326,7 +330,7 @@ async def registrar_asistencia(
         
     # Se define la hora de entrada permitida
     hora_actual = datetime.now().time()
-    hora_limite_entrada = time(8, 0)  # 08:00 AM
+    hora_limite_entrada = time(9, 0)  # 09:00 AM
     
     if nuevo_evento == "check-in":
         if hora_actual > hora_limite_entrada:
@@ -367,3 +371,90 @@ async def registrar_asistencia(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error crítico al guardar la asistencia: {str(e)}"
         )
+    
+@router.get("/asistencia/reporte", response_model=ReporteAsistenciaResponse)
+async def obtener_reporte_asistencia(
+    fecha_inicio: date,
+    fecha_fin: date,
+    worker_id: Optional[int] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    # 1. Traer los registros (busca un día extra por si el UTC saltó el día)
+    stmt = select(RegistroAsistencia).where(
+        cast(RegistroAsistencia.timestamp, Date) >= fecha_inicio,
+        cast(RegistroAsistencia.timestamp, Date) <= fecha_fin + timedelta(days=1)
+    )
+    
+    if worker_id:
+        stmt = stmt.where(RegistroAsistencia.worker_id == worker_id)
+        
+    stmt = stmt.order_by(RegistroAsistencia.worker_id, RegistroAsistencia.timestamp)
+    result = await db.execute(stmt)
+    registros = result.scalars().all()
+
+    # 2. Agrupación y Ajuste Maestro de Zona Horaria
+    agrupados = defaultdict(lambda: defaultdict(list))
+    for r in registros:
+        # Forzamos el reloj a la hora local (-7 horas)
+        timestamp_local = r.timestamp - timedelta(hours=7)
+        dia = timestamp_local.date()
+        
+        if fecha_inicio <= dia <= fecha_fin:
+            # Sobreescribimos la hora del registro en memoria para que trabaje con la hora local
+            r.timestamp = timestamp_local
+            agrupados[r.worker_id][dia].append(r)
+
+    # 3. Asumiendo horario de 9 a 5
+    HORA_ENTRADA = time(9, 0)
+    HORA_SALIDA = time(17, 0)
+    reporte_final = []
+
+    # 4. Calcular día por día
+    for w_id, dias in agrupados.items():
+        for dia, movimientos in dias.items():
+            movimientos.sort(key=lambda x: x.timestamp)
+            
+            primer_check_in = next((m for m in movimientos if m.event == "check-in"), None)
+            ultimo_check_out = next((m for m in reversed(movimientos) if m.event == "check-out"), None)
+
+            min_retardo = 0
+            min_salida_ant = 0
+            horas_totales = 0.0
+            horas_ordinarias = 0.0
+            horas_extra = 0.0
+
+            if primer_check_in:
+                t_in = primer_check_in.timestamp.time()
+                if t_in > HORA_ENTRADA:
+                    dt_in = datetime.combine(dia, t_in)
+                    dt_entrada = datetime.combine(dia, HORA_ENTRADA)
+                    min_retardo = int((dt_in - dt_entrada).total_seconds() / 60)
+
+            if ultimo_check_out:
+                t_out = ultimo_check_out.timestamp.time()
+                if t_out < HORA_SALIDA:
+                    dt_out = datetime.combine(dia, t_out)
+                    dt_salida = datetime.combine(dia, HORA_SALIDA)
+                    min_salida_ant = int((dt_salida - dt_out).total_seconds() / 60)
+
+            if primer_check_in and ultimo_check_out:
+                delta = ultimo_check_out.timestamp - primer_check_in.timestamp
+                horas_totales = round(delta.total_seconds() / 3600, 2)
+                
+                horas_ordinarias = min(8.0, horas_totales)
+                horas_extra = max(0.0, horas_totales - 8.0)
+
+            reporte_final.append({
+                "fecha": dia,
+                "worker_id": w_id,
+                "minutos_retardo": min_retardo,
+                "minutos_salida_anticipada": min_salida_ant,
+                "horas_totales": horas_totales,
+                "horas_ordinarias": horas_ordinarias,
+                "horas_extra": horas_extra
+            })
+
+    return {
+        "status": "success",
+        "data": reporte_final
+    }
