@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, String, Enum, ForeignKey, JSON, DateTime, Boolean, Column, Float
+from sqlalchemy import Integer, String, Enum, ForeignKey, JSON, DateTime, Boolean, Column, Float, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 import enum
 from datetime import datetime
@@ -61,3 +61,21 @@ class ExpedienteTrabajador(Base):
         "Usuario", 
         back_populates="expediente"
     )
+
+    #  Nueva tabla para el registro de asistencias
+class RegistroAsistencia(Base):
+    __tablename__ = "registro_asistencias"
+
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # ID del trabajador que se leerá del QR
+    worker_id = Column(Integer, nullable=False, index=True)
+    
+    # Captura fecha y hora exactas del registro de asistencia
+    timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    
+    # Almacena 'check-in' o 'check-out'
+    event = Column(String, nullable=False)
+    
+    # Almacenará 'A tiempo', 'Retardo', o 'Justificado' para el reporte
+    status = Column(String, nullable=False)

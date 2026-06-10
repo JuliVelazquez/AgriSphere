@@ -146,3 +146,11 @@ class EmpresaConfig(BaseModel):
             }
         }
     }
+
+# ==========================================
+# 7. ESQUEMAS PARA CONTROL DE ASISTENCIA
+# ==========================================
+
+# Validar el JSON que mande la app del encargado
+class AsistenciaRegistrarRequest(BaseModel):
+    worker_id: int = Field(..., examples=[1045])

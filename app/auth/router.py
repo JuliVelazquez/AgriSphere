@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-import time
+from sqlalchemy import select, desc
+from datetime import datetime, date, time
 
 from app.database import get_db
-from app.auth.models import Usuario, ExpedienteTrabajador
+from app.auth.models import Usuario, ExpedienteTrabajador, RegistroAsistencia
 from app.modulos.empresa.models import Empresa
 from app.auth.utils import (
     verificar_password, 
@@ -24,7 +24,8 @@ from app.auth.schemas import (
     UsuarioCreateData,
     PassMatchRequest,
     TrabajadorCreate,  #--> Esquema para la creación de trabajadores desde Recursos Humanos, que incluye datos para ambas tablas (usuarios y expedientes_trabajadores)
-    EmpresaConfig
+    EmpresaConfig,
+    AsistenciaRegistrarRequest
 )
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
@@ -291,3 +292,78 @@ async def configurar_empresa(payload: EmpresaConfig, db: AsyncSession = Depends(
         "message": mensaje,
         "data": payload.model_dump()
     }
+
+# ==========================================
+# CONFIGURACIÓN DE REGISTRO DE ASISTENCIA
+# ==========================================
+
+@router.post("/asistencia/registrar", status_code=status.HTTP_201_CREATED)
+async def registrar_asistencia(
+    request: AsistenciaRegistrarRequest, 
+    db: AsyncSession = Depends(get_db)
+):
+    hoy = date.today()
+    
+    # Busca el último registro de asistencia del trabajador de hoy
+    stmt = (
+        select(RegistroAsistencia)
+        .where(
+            RegistroAsistencia.worker_id == request.worker_id,
+            RegistroAsistencia.timestamp >= datetime.combine(hoy, time.min)
+        )
+        .order_by(desc(RegistroAsistencia.timestamp))
+        .limit(1)
+    )
+    
+    result = await db.execute(stmt)
+    ultimo_registro = result.scalar_one_or_none()
+    
+    # Si no ha checado hoy o el último movimiento fue una salida, se marca entrada
+    if ultimo_registro is None or ultimo_registro.event == "check-out":
+        nuevo_evento = "check-in"
+    else:
+        nuevo_evento = "check-out"
+        
+    # Se define la hora de entrada permitida
+    hora_actual = datetime.now().time()
+    hora_limite_entrada = time(8, 0)  # 08:00 AM
+    
+    if nuevo_evento == "check-in":
+        if hora_actual > hora_limite_entrada:
+            nuevo_status = "Retardo"
+        else:
+            nuevo_status = "A tiempo"
+    else:
+        # Para las salidas (check-out) se marca "A tiempo"
+        nuevo_status = "A tiempo"
+        
+    # 4. Guardado en la base de datos
+    nuevo_registro = RegistroAsistencia(
+        worker_id=request.worker_id,
+        event=nuevo_evento,
+        status=nuevo_status
+    )
+    
+    try:
+        db.add(nuevo_registro)
+        await db.commit()
+        await db.refresh(nuevo_registro)
+        
+        # 5. Respuesta exitosa a mostrar en la app del encargado
+        return {
+            "status": "success",
+            "message": f"Registro de {nuevo_evento} guardado correctamente",
+            "data": {
+                "worker_id": nuevo_registro.worker_id,
+                "event": nuevo_registro.event,
+                "status": nuevo_registro.status,
+                "timestamp": nuevo_registro.timestamp
+            }
+        }
+        # Respuesta de error en caso de que falle la base de datos
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error crítico al guardar la asistencia: {str(e)}"
+        )
