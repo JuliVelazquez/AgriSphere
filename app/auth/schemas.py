@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, EmailStr
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional, List
 
 # ==========================================
@@ -146,3 +146,33 @@ class EmpresaConfig(BaseModel):
             }
         }
     }
+
+# ==========================================
+# 7. ESQUEMAS PARA CONTROL DE ASISTENCIA
+# ==========================================
+
+# Validar el JSON que mande la app del encargado
+class AsistenciaRegistrarRequest(BaseModel):
+    worker_id: int = Field(..., examples=[1045])
+
+class ReporteAsistenciaRow(BaseModel):
+    fecha: date
+    worker_id: int
+    minutos_retardo: int
+    minutos_salida_anticipada: int
+    horas_totales: float
+    horas_ordinarias: float
+    horas_extra: float
+
+class ReporteAsistenciaResponse(BaseModel):
+    status: str
+    data: List[ReporteAsistenciaRow]
+
+class PermisoCreateRequest(BaseModel):
+    worker_id: int
+    fecha_permiso: date
+    motivo: str # Ej: "Vacaciones", "Médico", "Falta Justificada"
+
+class PermisoResponse(BaseModel):
+    status: str
+    message: str

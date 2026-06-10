@@ -1,21 +1,36 @@
+from collections import defaultdict
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-import time
+from sqlalchemy import select, desc, cast, Date
+from datetime import datetime, date, time, timedelta
+from typing import Optional
 
+# 1. Base de datos
 from app.database import get_db
-from app.auth.models import Usuario, ExpedienteTrabajador
+
+# 2. Modelos
+from app.auth.models import (
+    Usuario, 
+    ExpedienteTrabajador, 
+    RegistroAsistencia, 
+    PermisoAsistencia
+)
 from app.modulos.empresa.models import Empresa
+
+# 3. Utilidades
 from app.auth.utils import (
     verificar_password, 
     crear_token_acceso, 
     PermitirRoles,
-    encriptar_password,  #---> Importamos la función de utils para encriptar contraseñas
-    calcular_distancia_metros  #--> Importamos la función para calcular distancia entre coordenadas
+    encriptar_password,
+    calcular_distancia_metros
 )
+
+# 4. Esquemas
 from app.auth.schemas import (
     LoginRequest, 
-    LoginResponse, 
+    LoginResponse,
     TokenDataResponse, 
     QRResponse, 
     QRData,
@@ -23,8 +38,12 @@ from app.auth.schemas import (
     UsuarioCreateResponse,
     UsuarioCreateData,
     PassMatchRequest,
-    TrabajadorCreate,  #--> Esquema para la creación de trabajadores desde Recursos Humanos, que incluye datos para ambas tablas (usuarios y expedientes_trabajadores)
-    EmpresaConfig
+    TrabajadorCreate,
+    EmpresaConfig,
+    AsistenciaRegistrarRequest,
+    ReporteAsistenciaResponse,
+    PermisoCreateRequest,
+    PermisoResponse
 )
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
@@ -291,3 +310,200 @@ async def configurar_empresa(payload: EmpresaConfig, db: AsyncSession = Depends(
         "message": mensaje,
         "data": payload.model_dump()
     }
+
+# ==========================================
+# CONFIGURACIÓN DE REGISTRO DE ASISTENCIA
+# ==========================================
+
+@router.post("/asistencia/registrar", status_code=status.HTTP_201_CREATED)
+async def registrar_asistencia(
+    request: AsistenciaRegistrarRequest, 
+    db: AsyncSession = Depends(get_db)
+):
+    hoy = date.today()
+    
+    # Busca el último registro de asistencia del trabajador de hoy
+    stmt = (
+        select(RegistroAsistencia)
+        .where(
+            RegistroAsistencia.worker_id == request.worker_id,
+            RegistroAsistencia.timestamp >= datetime.combine(hoy, time.min)
+        )
+        .order_by(desc(RegistroAsistencia.timestamp))
+        .limit(1)
+    )
+    
+    result = await db.execute(stmt)
+    ultimo_registro = result.scalar_one_or_none()
+    
+    # Si no ha checado hoy o el último movimiento fue una salida, se marca entrada
+    if ultimo_registro is None or ultimo_registro.event == "check-out":
+        nuevo_evento = "check-in"
+    else:
+        nuevo_evento = "check-out"
+        
+    # Se define la hora de entrada permitida
+    hora_actual = datetime.now().time()
+    hora_limite_entrada = time(9, 0)  # 09:00 AM
+    
+    if nuevo_evento == "check-in":
+        if hora_actual > hora_limite_entrada:
+            nuevo_status = "Retardo"
+        else:
+            nuevo_status = "A tiempo"
+    else:
+        # Para las salidas (check-out) se marca "A tiempo"
+        nuevo_status = "A tiempo"
+        
+    # 4. Guardado en la base de datos
+    nuevo_registro = RegistroAsistencia(
+        worker_id=request.worker_id,
+        event=nuevo_evento,
+        status=nuevo_status
+    )
+    
+    try:
+        db.add(nuevo_registro)
+        await db.commit()
+        await db.refresh(nuevo_registro)
+        
+        # 5. Respuesta exitosa a mostrar en la app del encargado
+        return {
+            "status": "success",
+            "message": f"Registro de {nuevo_evento} guardado correctamente",
+            "data": {
+                "worker_id": nuevo_registro.worker_id,
+                "event": nuevo_registro.event,
+                "status": nuevo_registro.status,
+                "timestamp": nuevo_registro.timestamp
+            }
+        }
+        # Respuesta de error en caso de que falle la base de datos
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error crítico al guardar la asistencia: {str(e)}"
+        )
+    
+@router.get("/asistencia/reporte", response_model=ReporteAsistenciaResponse)
+async def obtener_reporte_asistencia(
+    fecha_inicio: date,
+    fecha_fin: date,
+    worker_id: Optional[int] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    # 1. Traer los registros (busca un día extra por si el UTC saltó el día)
+    stmt = select(RegistroAsistencia).where(
+        cast(RegistroAsistencia.timestamp, Date) >= fecha_inicio,
+        cast(RegistroAsistencia.timestamp, Date) <= fecha_fin + timedelta(days=1)
+    )
+    
+    if worker_id:
+        stmt = stmt.where(RegistroAsistencia.worker_id == worker_id)
+        
+    stmt = stmt.order_by(RegistroAsistencia.worker_id, RegistroAsistencia.timestamp)
+    result = await db.execute(stmt)
+    registros = result.scalars().all()
+
+    # 2. Agrupación y Ajuste Maestro de Zona Horaria
+    agrupados = defaultdict(lambda: defaultdict(list))
+    for r in registros:
+        # Forzamos el reloj a la hora local (-7 horas)
+        timestamp_local = r.timestamp - timedelta(hours=7)
+        dia = timestamp_local.date()
+        
+        if fecha_inicio <= dia <= fecha_fin:
+            # Sobreescribimos la hora del registro en memoria para que trabaje con la hora local
+            r.timestamp = timestamp_local
+            agrupados[r.worker_id][dia].append(r)
+
+    # 3. Asumiendo horario de 9 a 5
+    HORA_ENTRADA = time(9, 0)
+    HORA_SALIDA = time(17, 0)
+    reporte_final = []
+
+    # 4. Calcular día por día
+    for w_id, dias in agrupados.items():
+        for dia, movimientos in dias.items():
+            movimientos.sort(key=lambda x: x.timestamp)
+            
+            primer_check_in = next((m for m in movimientos if m.event == "check-in"), None)
+            ultimo_check_out = next((m for m in reversed(movimientos) if m.event == "check-out"), None)
+
+            # Verificamos si existe un permiso para este trabajador en este día
+            query_permiso = select(PermisoAsistencia).where(
+                PermisoAsistencia.worker_id == w_id,
+                PermisoAsistencia.fecha_permiso == dia
+            )
+            res_permiso = await db.execute(query_permiso)
+            existe_permiso = res_permiso.scalars().first() is not None
+
+            min_retardo = 0
+            min_salida_ant = 0
+            horas_totales = 0.0
+            horas_ordinarias = 0.0
+            horas_extra = 0.0
+
+            if existe_permiso:
+                min_retardo = 0
+                min_salida_ant = 0
+
+            else:
+
+                if primer_check_in:
+                    t_in = primer_check_in.timestamp.time()
+                    if t_in > HORA_ENTRADA:
+                        dt_in = datetime.combine(dia, t_in)
+                        dt_entrada = datetime.combine(dia, HORA_ENTRADA)
+                        min_retardo = int((dt_in - dt_entrada).total_seconds() / 60)
+
+                if ultimo_check_out:
+                    t_out = ultimo_check_out.timestamp.time()
+                    if t_out < HORA_SALIDA:
+                        dt_out = datetime.combine(dia, t_out)
+                        dt_salida = datetime.combine(dia, HORA_SALIDA)
+                        min_salida_ant = int((dt_salida - dt_out).total_seconds() / 60)
+
+                if primer_check_in and ultimo_check_out:
+                    delta = ultimo_check_out.timestamp - primer_check_in.timestamp
+                    horas_totales = round(delta.total_seconds() / 3600, 2)
+                    
+                    horas_ordinarias = min(8.0, horas_totales)
+                    horas_extra = max(0.0, horas_totales - 8.0)
+
+            reporte_final.append({
+                "fecha": dia,
+                "worker_id": w_id,
+                "minutos_retardo": min_retardo,
+                "minutos_salida_anticipada": min_salida_ant,
+                "horas_totales": horas_totales,
+                "horas_ordinarias": horas_ordinarias,
+                "horas_extra": horas_extra
+            })
+
+    return {
+        "status": "success",
+        "data": reporte_final
+    }
+
+@router.post("/permisos", response_model=PermisoResponse)
+async def registrar_permiso(
+    request: PermisoCreateRequest,
+    db: AsyncSession = Depends(get_db)
+    ):
+    # Creamos el objeto con los datos que llegan de la petición
+    nuevo_permiso = PermisoAsistencia(
+        worker_id=request.worker_id,
+        fecha_permiso=request.fecha_permiso,
+        motivo=request.motivo
+    )
+        
+    # Guardamos en PostgreSQL
+    db.add(nuevo_permiso)
+    await db.commit()
+        
+    return {
+        "status": "success",
+        "message": f"Permiso por '{request.motivo}' registrado exitosamente para el trabajador {request.worker_id}."
+        }

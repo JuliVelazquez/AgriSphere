@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, String, Enum, ForeignKey, JSON, DateTime, Boolean, Column, Float
+from sqlalchemy import Date, Integer, String, Enum, ForeignKey, JSON, DateTime, Boolean, Column, Float, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 import enum
 from datetime import datetime
@@ -16,6 +16,7 @@ class Usuario(Base):
     id_usuario: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     nombre: Mapped[str] = mapped_column(String, nullable=False)
     usuario: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False) # ej. empleado_01
+    correo: Mapped[str | None] = mapped_column(String, unique=True, index=True, nullable=True)
     contraseña: Mapped[str] = mapped_column(String, nullable=False) # Contraseña encriptada
     rol: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.USUARIO, nullable=False)
 
@@ -60,3 +61,30 @@ class ExpedienteTrabajador(Base):
         "Usuario", 
         back_populates="expediente"
     )
+
+    #  Nueva tabla para el registro de asistencias
+class RegistroAsistencia(Base):
+    __tablename__ = "registro_asistencias"
+
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # ID del trabajador que se leerá del QR
+    worker_id = Column(Integer, nullable=False, index=True)
+    
+    # Captura fecha y hora exactas del registro de asistencia
+    timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    
+    # Almacena 'check-in' o 'check-out'
+    event = Column(String, nullable=False)
+    
+    # Almacenará 'A tiempo', 'Retardo', o 'Justificado' para el reporte
+    status = Column(String, nullable=False)
+
+class PermisoAsistencia(Base):
+    __tablename__ = "permisos_asistencia"
+
+    id = Column(Integer, primary_key=True, index=True)
+    worker_id = Column(Integer, index=True, nullable=False)
+    fecha_permiso = Column(Date, nullable=False)
+    motivo = Column(String, nullable=False) # Ej: "Enfermedad", "Vacaciones", "Asunto Familiar"
+    registrado_en = Column(DateTime(timezone=True), server_default=func.now())
