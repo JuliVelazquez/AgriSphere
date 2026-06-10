@@ -22,7 +22,12 @@ class EmpresaParametrosUpdate(BaseModel):
     label_zona2: Optional[str] = None
     label_seccion: Optional[str] = None
     label_surco: Optional[str] = None
-    
+    # Etiquetas agregadas para dar el contexto espacial 
+    # de que el invernadero es de valor entero.
+    label_poste: Optional[str] = None
+    label_lado1: Optional[str] = None
+    label_lado2: Optional[str] = None
+
     encargado_almacen_id: Optional[int] = None
 
     class Config:
