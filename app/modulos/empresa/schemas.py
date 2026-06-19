@@ -1,5 +1,17 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Literal
+from datetime import date, time
+
+class MarcajeOutput(BaseModel):
+    id: int
+    fecha: date
+    hora: time
+    empleado_id: int
+    nombre_empleado: str 
+    tipo_evento: str
+
+    class Config:
+        from_attributes = True
 
 class EmpresaParametrosUpdate(BaseModel):
     nombre: Optional[str] = None
@@ -32,3 +44,10 @@ class EmpresaParametrosUpdate(BaseModel):
 
     class Config:
         from_attributes = True
+
+    
+class MarcajeInput(BaseModel):
+    empleado_id: int
+    tipo_evento: Literal["Entrada", "Salida"]
+
+   

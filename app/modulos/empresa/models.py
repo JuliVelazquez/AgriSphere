@@ -1,6 +1,19 @@
-from sqlalchemy import Integer, String, Float, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Integer, String, Float, ForeignKey, Column, Date, Time
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
+from datetime import date, datetime
+
+class MarcajeReloj(Base):
+    __tablename__ = "marcajes_reloj"
+
+    id = Column(Integer, primary_key=True, index=True)
+    empleado_id = Column(Integer, ForeignKey("usuarios.id_usuario")) # la tabla de tus empleados
+    fecha = Column(Date, default=date.today)
+    hora = Column(Time, default=lambda: datetime.now().time()) # la hora actual
+    tipo_evento = Column(String) # aquí se guardará "Entrada" o "Salida"
+
+    # te permite acceder a los datos del empleado
+    empleado = relationship("Usuario", back_populates="marcajes")
 
 class Empresa(Base):
     __tablename__ = "empresas"

@@ -3,6 +3,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 import enum
 from datetime import datetime
 from app.database import Base
+from app.modulos.empresa.models import MarcajeReloj
 
 # Roles oficiales para el sistema
 class UserRole(str, enum.Enum):
@@ -27,6 +28,10 @@ class Usuario(Base):
         uselist=False
     )
 
+    marcajes: Mapped[list["MarcajeReloj"]] = relationship(
+        "MarcajeReloj",
+        back_populates="empleado"
+    )
 class ExpedienteTrabajador(Base):
     __tablename__ = "expedientes_trabajadores"
 
