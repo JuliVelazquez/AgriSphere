@@ -43,7 +43,9 @@ from app.auth.schemas import (
     AsistenciaRegistrarRequest,
     ReporteAsistenciaResponse,
     PermisoCreateRequest,
-    PermisoResponse
+    PermisoResponse,
+    PerfilEmpleadoResponse,  
+    PerfilEmpleadoData  
 )
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
@@ -507,3 +509,42 @@ async def registrar_permiso(
         "status": "success",
         "message": f"Permiso por '{request.motivo}' registrado exitosamente para el trabajador {request.worker_id}."
         }
+
+#endpoint de empleados
+@router.get("/empleados/me", response_model=PerfilEmpleadoResponse)
+async def obtener_perfil_empleado(
+    current_user: dict = Depends(PermitirRoles(["Usuario", "Jefe Área", "Oficina"])),
+    db: AsyncSession = Depends(get_db)
+):
+    usuario_id = int(current_user["sub"])
+
+    # 1. Buscar datos del usuario
+    resultado = await db.execute(
+        select(Usuario).where(Usuario.id_usuario == usuario_id)
+    )
+    usuario = resultado.scalar_one_or_none()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    # 2. Buscar expediente para obtener área/departamento
+    resultado_exp = await db.execute(
+        select(ExpedienteTrabajador).where(ExpedienteTrabajador.usuario_id == usuario_id)
+    )
+    expediente = resultado_exp.scalar_one_or_none()
+
+    # 3. Generar el string del QR
+    import time as time_module
+    timestamp_actual = int(time_module.time())
+    qr_string = f"usr_{usuario_id}:timestamp_{timestamp_actual}:sig_ab89f3"
+
+    return PerfilEmpleadoResponse(
+        data=PerfilEmpleadoData(
+            id_empleado=usuario_id,
+            nombre_completo=usuario.nombre,
+            rol=usuario.rol.value if hasattr(usuario.rol, 'value') else str(usuario.rol),
+            departamento=expediente.area_rol if expediente else None,
+            nombre_supervisor=None,  # se puede agregar después cuando haya supervisores
+            fecha_hora_servidor=datetime.now(),
+            qr_string=qr_string
+        )
+    )

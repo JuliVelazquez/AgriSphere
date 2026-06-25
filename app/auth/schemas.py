@@ -92,7 +92,7 @@ class PassMatchRequest(BaseModel):
     usuario: str = Field(..., examples=["figaro_ortiz"])
     password_a_verificar: str = Field(..., examples=["Invernadero2026*"])
 
-    # ==========================================
+# ==========================================
 # 5. ESQUEMAS PARA TRABAJADORES (RECURSOS HUMANOS)
 # ==========================================
 
@@ -176,3 +176,21 @@ class PermisoCreateRequest(BaseModel):
 class PermisoResponse(BaseModel):
     status: str
     message: str
+
+
+# ==========================================
+# 8. ESQUEMAS PARA PERFIL DE EMPLEADO
+# ==========================================
+
+class PerfilEmpleadoResponse(BaseModel):
+    status: str = "success"
+    data: "PerfilEmpleadoData"
+
+class PerfilEmpleadoData(BaseModel):
+    id_empleado: int
+    nombre_completo: str
+    rol: str
+    departamento: Optional[str] = None
+    nombre_supervisor: Optional[str] = None
+    fecha_hora_servidor: datetime
+    qr_string: str
