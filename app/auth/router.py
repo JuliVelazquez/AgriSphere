@@ -3,8 +3,11 @@ from collections import defaultdict
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, cast, Date
-from datetime import datetime, date, time, timedelta
+from datetime import datetime, date, time, timedelta, timezone
 from typing import Optional
+import random
+from app.auth.models import RecuperacionPassword
+from app.auth.schemas import RecuperarPasswordRequest, RecuperarPasswordResponse
 
 # 1. Base de datos
 from app.database import get_db
@@ -548,3 +551,38 @@ async def obtener_perfil_empleado(
             qr_string=qr_string
         )
     )
+@router.post("/recuperar-password", response_model=RecuperarPasswordResponse)
+async def solicitar_recuperacion(
+    payload: RecuperarPasswordRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    # 1. Buscar usuario por correo
+    resultado = await db.execute(
+        select(Usuario).where(Usuario.correo == payload.correo)
+    )
+    usuario = resultado.scalar_one_or_none()
+
+    # 2. Si no existe, respondemos igual por seguridad (no revelamos si existe o no)
+    if not usuario:
+        return RecuperarPasswordResponse()
+
+    # 3. Generar código OTP de 6 dígitos
+    codigo = str(random.randint(100000, 999999))
+
+    # 4. Calcular expiración (15 minutos)
+    expiracion = datetime.now(timezone.utc) + timedelta(minutes=15)
+
+    # 5. Guardar en la base de datos
+    nuevo_otp = RecuperacionPassword(
+        usuario_id=usuario.id_usuario,
+        codigo_otp=codigo,
+        usado=False,
+        expires_at=expiracion
+    )
+    db.add(nuevo_otp)
+    await db.commit()
+
+    # 6. Envio por correo
+    print(f"[SIMULACIÓN EMAIL] Código OTP para {payload.correo}: {codigo}")
+
+    return RecuperarPasswordResponse()

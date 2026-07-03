@@ -194,3 +194,14 @@ class PerfilEmpleadoData(BaseModel):
     nombre_supervisor: Optional[str] = None
     fecha_hora_servidor: datetime
     qr_string: str
+
+# ==========================================
+# 9. ESQUEMAS PARA RECUPERACIÓN DE CONTRASEÑA
+# ==========================================
+
+class RecuperarPasswordRequest(BaseModel):
+    correo: str = Field(..., examples=["juan@empresa.com"])
+
+class RecuperarPasswordResponse(BaseModel):
+    status: str = "success"
+    message: str = "Si el correo existe, recibirás un código de recuperación."
