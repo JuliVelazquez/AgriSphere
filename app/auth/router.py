@@ -48,7 +48,11 @@ from app.auth.schemas import (
     PermisoCreateRequest,
     PermisoResponse,
     PerfilEmpleadoResponse,  
-    PerfilEmpleadoData  
+    PerfilEmpleadoData,
+    RecuperarPasswordRequest,
+    RecuperarPasswordResponse,
+    VerificarCodigoRequest,     
+    VerificarCodigoResponse   
 )
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
@@ -586,3 +590,48 @@ async def solicitar_recuperacion(
     print(f"[SIMULACIÓN EMAIL] Código OTP para {payload.correo}: {codigo}")
 
     return RecuperarPasswordResponse()
+
+@router.post("/verificar-codigo")
+async def verificar_codigo_otp(
+    payload: VerificarCodigoRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    # 1. Buscar usuario por correo
+    resultado = await db.execute(
+        select(Usuario).where(Usuario.correo == payload.correo)
+    )
+    usuario = resultado.scalar_one_or_none()
+
+    if not usuario:
+        raise HTTPException(status_code=400, detail="Código inválido o expirado.")
+
+    # 2. Buscar el OTP más reciente del usuario que no haya sido usado
+    resultado_otp = await db.execute(
+        select(RecuperacionPassword)
+        .where(
+            RecuperacionPassword.usuario_id == usuario.id_usuario,
+            RecuperacionPassword.codigo_otp == payload.codigo_otp,
+            RecuperacionPassword.usado == False,
+            RecuperacionPassword.expires_at > datetime.now(timezone.utc)
+        )
+        .order_by(desc(RecuperacionPassword.creado_en))
+        .limit(1)
+    )
+    otp = resultado_otp.scalar_one_or_none()
+
+    if not otp:
+        raise HTTPException(status_code=400, detail="Código inválido o expirado.")
+
+    # 3. Generar reset_token de un solo uso (JWT que caduca en 15 minutos)
+    reset_token = crear_token_acceso(data={
+        "sub": str(usuario.id_usuario),
+        "tipo": "reset_password",
+        "otp_id": otp.id
+    })
+
+    # 4. Guardar el reset_token e invalidar el OTP
+    otp.usado = True
+    otp.reset_token = reset_token
+    await db.commit()
+
+    return VerificarCodigoResponse(reset_token=reset_token)

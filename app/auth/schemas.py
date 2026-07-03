@@ -205,3 +205,12 @@ class RecuperarPasswordRequest(BaseModel):
 class RecuperarPasswordResponse(BaseModel):
     status: str = "success"
     message: str = "Si el correo existe, recibirás un código de recuperación."
+    
+class VerificarCodigoRequest(BaseModel):
+    correo: str = Field(..., examples=["juan@empresa.com"])
+    codigo_otp: str = Field(..., examples=["123456"])
+
+class VerificarCodigoResponse(BaseModel):
+    status: str = "success"
+    message: str = "Código verificado correctamente."
+    reset_token: str
