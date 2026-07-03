@@ -48,6 +48,20 @@ def crear_token_acceso(data: dict) -> str:
     token_encriptado = jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return token_encriptado
 
+def decodificar_token(token: str) -> dict:
+    """
+    Decodifica y valida un token JWT utilizando la configuración maestra.
+    Retorna el payload si es válido, de lo contrario levanta un error HTTP.
+    """
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        return payload
+    except Exception as e:
+        print(f"FALLO AL DECODIFICAR TOKEN: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El token ha expirado o es inválido."
+        )
 
 # ==========================================
 # 3. SEGURIDAD Y PROTECCIÓN DE RUTAS (ROLES)

@@ -6,8 +6,6 @@ from sqlalchemy import select, desc, cast, Date
 from datetime import datetime, date, time, timedelta, timezone
 from typing import Optional
 import random
-from app.auth.models import RecuperacionPassword
-from app.auth.schemas import RecuperarPasswordRequest, RecuperarPasswordResponse
 
 # 1. Base de datos
 from app.database import get_db
@@ -17,7 +15,8 @@ from app.auth.models import (
     Usuario, 
     ExpedienteTrabajador, 
     RegistroAsistencia, 
-    PermisoAsistencia
+    PermisoAsistencia,
+    RecuperacionPassword
 )
 from app.modulos.empresa.models import Empresa
 
@@ -27,7 +26,8 @@ from app.auth.utils import (
     crear_token_acceso, 
     PermitirRoles,
     encriptar_password,
-    calcular_distancia_metros
+    calcular_distancia_metros,
+    decodificar_token
 )
 
 # 4. Esquemas
@@ -52,7 +52,9 @@ from app.auth.schemas import (
     RecuperarPasswordRequest,
     RecuperarPasswordResponse,
     VerificarCodigoRequest,     
-    VerificarCodigoResponse   
+    VerificarCodigoResponse,
+    ResetPasswordRequest, 
+    ResetPasswordResponse
 )
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
@@ -635,3 +637,52 @@ async def verificar_codigo_otp(
     await db.commit()
 
     return VerificarCodigoResponse(reset_token=reset_token)
+
+@router.post("/reset-password", response_model=ResetPasswordResponse)
+async def reset_password(
+    payload: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    # 1. Decodificar el token para sacar el ID del usuario
+    try:
+        datos_token = decodificar_token(payload.reset_token) 
+        usuario_id = datos_token.get("sub")
+    except Exception:
+        raise HTTPException(status_code=400, detail="El token ha expirado o es inválido.")
+        
+    if not usuario_id:
+        raise HTTPException(status_code=400, detail="Token inválido: falta ID de usuario.")
+
+    # 2. Buscar el registro del OTP en la base de datos (solo usando el token)
+    resultado_otp = await db.execute(
+        select(RecuperacionPassword)
+        .where(
+            RecuperacionPassword.reset_token == payload.reset_token
+        )
+    )
+    otp = resultado_otp.scalar_one_or_none()
+
+    if not otp:
+        raise HTTPException(status_code=400, detail="Token inválido o no encontrado.")
+
+    # Validar que no se haya usado ya para cambiar la contraseña
+    if getattr(otp, 'reset_usado', False):
+        raise HTTPException(status_code=400, detail="Este token ya fue utilizado para cambiar la contraseña.")
+
+    # 3. Buscar al usuario dueño de ese token
+    resultado_usuario = await db.execute(
+        select(Usuario).where(Usuario.id_usuario == int(usuario_id))
+    )
+    usuario = resultado_usuario.scalar_one_or_none()
+
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+
+    # 4. Encriptar la nueva contraseña y actualizar
+    usuario.hashed_password = encriptar_password(payload.nueva_password)
+
+    # 5. Invalidar el token marcándolo como usado de forma definitiva
+    otp.reset_usado = True
+    await db.commit()
+
+    return ResetPasswordResponse()
