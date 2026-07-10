@@ -21,7 +21,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="API de Gestión Agrícola e Inventario",
     version="1.0.0",
-    lifespan=lifespan  # <--- SE CONECTA AQUÍ
+    lifespan=lifespan,
+    root_path="/agrisphere"
 )
 
 # Registrar las rutas
