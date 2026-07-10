@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, String, Float, ForeignKey, Column, Date, Time
+from sqlalchemy import Integer, String, Float, ForeignKey, Column, Date, Time, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 from datetime import date, datetime
@@ -7,12 +7,12 @@ class MarcajeReloj(Base):
     __tablename__ = "marcajes_reloj"
 
     id = Column(Integer, primary_key=True, index=True)
-    empleado_id = Column(Integer, ForeignKey("usuarios.id_usuario")) # la tabla de tus empleados
+    empleado_id = Column(Integer, ForeignKey("usuarios.id_usuario")) # la tabla de los empleados
     fecha = Column(Date, default=date.today)
     hora = Column(Time, default=lambda: datetime.now().time()) # la hora actual
     tipo_evento = Column(String) # aquí se guardará "Entrada" o "Salida"
 
-    # te permite acceder a los datos del empleado
+    # permite acceder a los datos del empleado
     empleado = relationship("Usuario", back_populates="marcajes")
 
 class Empresa(Base):
@@ -45,3 +45,40 @@ class Empresa(Base):
     # Relaciones
     super_admin_id: Mapped[int] = mapped_column(Integer, ForeignKey("usuarios.id_usuario"), nullable=True)
     encargado_almacen_id: Mapped[int] = mapped_column(Integer, ForeignKey("usuarios.id_usuario"), nullable=True)
+
+class Invernadero(Base):
+    __tablename__ = "invernaderos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String, nullable=False)          # ej. INV-01
+    cultivo = Column(String, nullable=True)          # ej. Tomates
+    id_ciclo = Column(String, nullable=True)         # ej. 1.2-26
+    superficie_m2 = Column(Float, nullable=True)     # ej. 10000
+    fecha_plantacion = Column(DateTime, nullable=True)
+    estado = Column(String, default="Activo")        # Activo, Alerta, Inactivo
+    ultima_revision = Column(DateTime, nullable=True)
+    responsable = Column(String, nullable=True)
+    empresa_id = Column(Integer, ForeignKey("empresas.id"), nullable=True)
+
+class MonitoreoPlagas(Base):
+    __tablename__ = "monitoreos_plagas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    invernadero_id = Column(Integer, ForeignKey("invernaderos.id"), nullable=False)
+    fecha = Column(DateTime, default=datetime.utcnow)
+    plagas_detectadas = Column(Integer, default=0)      
+    insectos_beneficos = Column(Integer, default=0)
+    focos_enfermedad = Column(Integer, default=0) 
+    nivel_alerta = Column(String, default="NORMAL")
+    registrado_por = Column(Integer, ForeignKey("usuarios.id_usuario"), nullable=True)
+    notas = Column(String, nullable=True)
+
+class PlantaRetirada(Base):
+    __tablename__ = "plantas_retiradas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    invernadero_id = Column(Integer, ForeignKey("invernaderos.id"), nullable=False)
+    fecha = Column(DateTime, default=datetime.utcnow)
+    tipo_problema = Column(String, nullable=False)   
+    cantidad = Column(Integer, default=0)            
+    registrado_por = Column(Integer, ForeignKey("usuarios.id_usuario"), nullable=True)

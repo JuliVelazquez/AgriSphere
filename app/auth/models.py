@@ -94,43 +94,6 @@ class PermisoAsistencia(Base):
     motivo = Column(String, nullable=False) # Ej: "Enfermedad", "Vacaciones", "Asunto Familiar"
     registrado_en = Column(DateTime(timezone=True), server_default=func.now())
 
-class Invernadero(Base):
-    __tablename__ = "invernaderos"
-
-    id = Column(Integer, primary_key=True, index=True)
-    nombre = Column(String, nullable=False)          # ej. INV-01
-    cultivo = Column(String, nullable=True)          # ej. Tomates
-    id_ciclo = Column(String, nullable=True)         # ej. 1.2-26
-    superficie_m2 = Column(Float, nullable=True)     # ej. 10000
-    fecha_plantacion = Column(DateTime, nullable=True)
-    estado = Column(String, default="Activo")        # Activo, Alerta, Inactivo
-    ultima_revision = Column(DateTime, nullable=True)
-    responsable = Column(String, nullable=True)
-    empresa_id = Column(Integer, ForeignKey("empresas.id"), nullable=True)
-
-class MonitoreoPlagas(Base):
-    __tablename__ = "monitoreos_plagas"
-
-    id = Column(Integer, primary_key=True, index=True)
-    invernadero_id = Column(Integer, ForeignKey("invernaderos.id"), nullable=False)
-    fecha = Column(DateTime, default=datetime.utcnow)
-    plagas_detectadas = Column(Integer, default=0)      # ej. 142
-    insectos_beneficos = Column(Integer, default=0)     # ej. 8450
-    focos_enfermedad = Column(Integer, default=0)       # ej. 3
-    nivel_alerta = Column(String, default="NORMAL")     # NORMAL, ALTO, CRITICO
-    registrado_por = Column(Integer, ForeignKey("usuarios.id_usuario"), nullable=True)
-    notas = Column(String, nullable=True)
-
-class PlantaRetirada(Base):
-    __tablename__ = "plantas_retiradas"
-
-    id = Column(Integer, primary_key=True, index=True)
-    invernadero_id = Column(Integer, ForeignKey("invernaderos.id"), nullable=False)
-    fecha = Column(DateTime, default=datetime.utcnow)
-    tipo_problema = Column(String, nullable=False)   # ej. Fusarium, Botrytis, Daño Mecánico
-    cantidad = Column(Integer, default=0)            # ej. 45
-    registrado_por = Column(Integer, ForeignKey("usuarios.id_usuario"), nullable=True)
-
 class RecuperacionPassword(Base):
     __tablename__ = "recuperacion_password"
 

@@ -112,7 +112,6 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Acceso denegado. Estás a {int(distancia)} metros del Invernadero. Acércate a la zona de trabajo."
             )
-
     # 5. Generar claims y firmar token JWT
     data_para_token = {
         "sub": str(usuario_db.id_usuario),
@@ -130,7 +129,6 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
             rol=data_para_token["rol"]
         )
     )
-
 
 # ==========================================
 # 2. OPERACIONES DE INGRESO (TRABAJADOR / QR)
@@ -151,7 +149,6 @@ async def generar_payload_qr(current_user: dict = Depends(PermitirRoles(["Usuari
             expires_in_seconds=60
         )
     )
-
 
 # ==========================================
 # 3. OPERACIONES DE OFICINA (ALTA DE USUARIOS)
@@ -196,7 +193,6 @@ async def crear_usuario_oficina(payload: UsuarioCreateRequest, db: AsyncSession 
             status_sistema="Activo"                              # Ajustado a string simple si no existe el campo
         )
     )
-
 
 # ==========================================
 # 4. OPERACIONES DE OFICINA (PASS-MATCH)
