@@ -121,10 +121,12 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
     
     token_jwt = crear_token_acceso(data=data_para_token)
 
+    # 6. Retornar la respuesta final con pydantic
     return LoginResponse(
         message="Autenticación correcta",
         data=TokenDataResponse(
             access_token=token_jwt,
+            token_type="bearer",
             usuario_id=usuario_db.id_usuario,
             rol=data_para_token["rol"]
         )
