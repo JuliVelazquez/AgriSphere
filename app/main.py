@@ -6,6 +6,7 @@ from app.database import engine, Base
 from app.modulos.empresa.models import Empresa 
 from app.auth.models import Usuario, ExpedienteTrabajador
 from app.modulos.dashboard.router import router as dashboard_router
+from app.modulos.monitoreo.router import router as monitoreo_router
 
 # manejo de inicio y apagado del servidor para crear tablas automáticamente
 @asynccontextmanager
@@ -15,7 +16,6 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
         
     yield
-# ----------------------------------------------------
 
 # Le pasamos el lifespan a la aplicación
 app = FastAPI(
@@ -29,6 +29,7 @@ app = FastAPI(
 app.include_router(auth_router)
 app.include_router(empresa_router) 
 app.include_router(dashboard_router)
+app.include_router(monitoreo_router)
 
 @app.get("/")
 async def root():
