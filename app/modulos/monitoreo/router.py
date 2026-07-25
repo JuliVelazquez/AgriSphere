@@ -1,11 +1,14 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import Optional
+from typing import Optional, List
 from datetime import date
-from app.database import get_db  
+from app.database import get_db 
 from app.modulos.monitoreo.models import ReporteMonitoreo, ReporteObservable
 from app.modulos.monitoreo.schemas import HistorialResponse, ReporteMonitoreoCreate
+import os
+import uuid
+import shutil
 # ==========================================
 # CONFIGURACIÓN DEL ROUTER
 # ==========================================
@@ -93,3 +96,42 @@ async def crear_reporte_monitoreo(
         "id_generado": nuevo_reporte.id_reporte, # Le mandamos al front el ID nuevo como extra
         "datos_recibidos": payload.model_dump()
     }
+
+# ===========================
+# ENDPOINT PARA SUBIR FOTOS
+# ===========================
+# 1. Definimos la carpeta donde se guardarán las fotos
+CARPETA_FOTOS = "static/fotos_monitoreo"
+os.makedirs(CARPETA_FOTOS, exist_ok=True)
+
+@router.post("/subir-fotos")
+async def subir_fotos_evidencia(fotos: List[UploadFile] = File(...)):
+    """
+    Recibe archivos fisicos, los guarda en el servidor
+    y devuelve un arreglo con las URLs definitivas.
+    """
+    urls_definitivas = []
+    for foto in fotos:
+        # 1. Extraer la extensión del archivo (ej. .jpg, .png)
+        extension = foto.filename.split(".")[-1]
+
+        # 2. Crear un nombre único para que no choquen los archivos
+        nombre_unico = f"{uuid.uuid4()}.{extension}"
+
+        # 3. Armar la ruta completa donde se guardará
+        ruta_archivo = os.path.join(CARPETA_FOTOS, nombre_unico)
+
+        # 4. Guardar el archivo fisico en el servidor
+        with open(ruta_archivo, "wb") as buffer:
+            shutil.copyfileobj(foto.file, buffer)
+
+        # 5. Generar la "URL" que le regresaremos a Android
+        url_final = f"/{ruta_archivo}".replace("\\", "/")
+        urls_definitivas.append(url_final)
+
+# 6. Devolver el arreglo con las URLs como pide el requerimiento
+    return{
+      "status": "success",
+      "message": f"Se subieron{len(fotos)} fotos correctamente",
+      "urls": urls_definitivas
+}
