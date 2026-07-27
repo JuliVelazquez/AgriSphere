@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from app.database import get_db
 from app.auth.models import Usuario, ExpedienteTrabajador
 from app.modulos.escaner.schemas import EscanerRequest, EscanerResponse
+from app.modulos.empresa.models import Invernadero
+from app.modulos.escaner.schemas import EscanerRequest, EscanerResponse, ZonaAsignada, AsignacionesResponse
 
 router = APIRouter(prefix="/api/escaner", tags=["Escáner QR"])
 
@@ -67,3 +69,46 @@ async def validar_qr(
             acceso=False,
             mensaje="QR inválido o mal formado."
         )
+
+@router.get("/api/usuarios/{usuario_id}/asignaciones", response_model=AsignacionesResponse)
+async def obtener_asignaciones(
+    usuario_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    # 1. Buscar expediente del usuario
+    resultado_exp = await db.execute(
+        select(ExpedienteTrabajador).where(
+            ExpedienteTrabajador.usuario_id == usuario_id
+        )
+    )
+    expediente = resultado_exp.scalar_one_or_none()
+
+    if not expediente:
+        raise HTTPException(status_code=404, detail="Expediente no encontrado.")
+
+    # 2. Buscar nombre del usuario
+    resultado_usr = await db.execute(
+        select(Usuario).where(Usuario.id_usuario == usuario_id)
+    )
+    usuario = resultado_usr.scalar_one_or_none()
+
+    # 3. Leer access_level y buscar invernaderos que coincidan
+    access_level = expediente.access_level or []
+    
+    resultado_inv = await db.execute(
+        select(Invernadero).where(Invernadero.nombre.in_(access_level))
+    )
+    invernaderos = resultado_inv.scalars().all()
+
+    return AsignacionesResponse(
+        usuario_id=usuario_id,
+        nombre=usuario.nombre if usuario else "Desconocido",
+        asignaciones=[
+            ZonaAsignada(
+                invernadero_id=inv.id,
+                nombre=inv.nombre,
+                cultivo=inv.cultivo,
+                estado=inv.estado
+            ) for inv in invernaderos
+        ]
+    )
