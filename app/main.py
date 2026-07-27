@@ -7,6 +7,7 @@ from app.modulos.empresa.models import Empresa
 from app.auth.models import Usuario, ExpedienteTrabajador
 from app.modulos.dashboard.router import router as dashboard_router
 from app.modulos.monitoreo.router import router as monitoreo_router
+from app.modulos.escaner.router import router as escaner_router
 
 # manejo de inicio y apagado del servidor para crear tablas automáticamente
 @asynccontextmanager
@@ -30,6 +31,7 @@ app.include_router(auth_router)
 app.include_router(empresa_router) 
 app.include_router(dashboard_router)
 app.include_router(monitoreo_router)
+app.include_router(escaner_router)
 
 @app.get("/")
 async def root():

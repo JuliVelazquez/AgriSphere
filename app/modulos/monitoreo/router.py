@@ -16,7 +16,6 @@ router = APIRouter(
     prefix="/api/monitoreo",
     tags=["Historial y Reportes de Monitoreo"]
 )
-
 # ==========================================
 # ENDPOINTS
 # ==========================================
