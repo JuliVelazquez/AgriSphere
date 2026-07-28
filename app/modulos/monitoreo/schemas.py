@@ -29,9 +29,11 @@ class ReporteMonitoreoCreate(BaseModel):
     id_usuario: int
     zona: str
     seccion: str
+    temperatura: Optional[float]= None
+    humedad: Optional[float]= None
     tipo_observacion: str
     especie_tipo: str
-    nivel_urgencia: str
+    nivel_infestacion: str
     notas: Optional[str]= None
     observables: List[ObservableItem]
 

@@ -15,7 +15,7 @@ class ReporteMonitoreo(Base):
     tipo_observacion: Mapped[str] = mapped_column(String(50), nullable=False)
     especie_tipo: Mapped[str] = mapped_column(String(100), nullable=False)
     notas: Mapped[str] = mapped_column(String(255), nullable=True) # Puede estar vacío
-    nivel_urgencia: Mapped[str] = mapped_column(String(50), nullable=False)
+    nivel_infestacion: Mapped[str] = mapped_column(String(50), nullable=False)
     # Esto le dice a SQLAlchemy que un reporte puede tener muchos "observables"
     observables = relationship("ReporteObservable", back_populates="reporte")
 

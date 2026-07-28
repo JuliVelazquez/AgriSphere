@@ -72,7 +72,7 @@ async def crear_reporte_monitoreo(
         seccion=payload.seccion,
         tipo_observacion=payload.tipo_observacion,
         especie_tipo=payload.especie_tipo,
-        nivel_urgencia=payload.nivel_urgencia,
+        nivel_infestacion=payload.nivel_infestacion,
         notas=payload.notas,
         fecha_registro=date.today() 
     )
