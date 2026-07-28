@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, Date, ForeignKey, String, Float
+from sqlalchemy import Integer, Date, ForeignKey, String, Float, Column
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import date
 from app.database import Base 
@@ -32,3 +32,11 @@ class ReporteObservable(Base):
 
     # Relación de vuelta hacia el reporte
     reporte = relationship("ReporteMonitoreo", back_populates="observables")
+
+class CatalogoObservable(Base):
+    __tablename__ = "catalogo_observables"
+
+    id_observable = Column(Integer, primary_key=True, index=True)
+    tipo = Column(String(50), nullable=False)
+    nombre = Column(String(100), nullable=False)
+    descripcion = Column(String(255), nullable=True)

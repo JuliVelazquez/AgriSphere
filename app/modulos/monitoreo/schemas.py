@@ -34,3 +34,13 @@ class ReporteMonitoreoCreate(BaseModel):
     nivel_urgencia: str
     notas: Optional[str]= None
     observables: List[ObservableItem]
+
+# 5. Molde para el catalogo en la app
+class CatalogoObservableResponse(BaseModel):
+    id_observable: int
+    tipo: str
+    nombre: str
+    descripcion: Optional[str] = None
+
+    class Config:
+        from_attributes = True  # Si usas Pydantic v1, esto era orm_mode = True

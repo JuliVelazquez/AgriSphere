@@ -1,14 +1,16 @@
 from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 from sqlalchemy import select
 from typing import Optional, List
 from datetime import date
 from app.database import get_db 
-from app.modulos.monitoreo.models import ReporteMonitoreo, ReporteObservable
-from app.modulos.monitoreo.schemas import HistorialResponse, ReporteMonitoreoCreate
+from app.modulos.monitoreo.models import ReporteMonitoreo, ReporteObservable, CatalogoObservable
+from app.modulos.monitoreo.schemas import HistorialResponse, ReporteMonitoreoCreate, CatalogoObservableResponse
 import os
 import uuid
 import shutil
+
 # ==========================================
 # CONFIGURACIÓN DEL ROUTER
 # ==========================================
@@ -134,3 +136,18 @@ async def subir_fotos_evidencia(fotos: List[UploadFile] = File(...)):
       "message": f"Se subieron{len(fotos)} fotos correctamente",
       "urls": urls_definitivas
 }
+
+@router.get("/catalogos/observables", response_model=List[CatalogoObservableResponse])
+async def obtener_catalogo(db: AsyncSession = Depends(get_db)):
+    """
+    Extrae el catálogo completo de observables para popular los 
+    menús en cascada (Plagas, Enfermedades, Insectos Benéficos).
+    """
+    # Hacemos la consulta a la nueva tabla
+    query = select(CatalogoObservable)
+    result = await db.execute(query)
+    
+    # Extraemos todos los registros
+    catalogos = result.scalars().all()
+    
+    return catalogos
