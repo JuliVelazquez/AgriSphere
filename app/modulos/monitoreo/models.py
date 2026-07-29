@@ -7,11 +7,13 @@ class ReporteMonitoreo(Base):
     __tablename__ = "reportes_monitoreo"
 
     id_reporte: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    fecha_registro: Mapped[date] = mapped_column(Date, nullable=False)
+    fecha_registro: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
     id_invernadero: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
     id_usuario: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
     zona: Mapped[str] = mapped_column(String(50), nullable=False)
     seccion: Mapped[str] = mapped_column(String(50), nullable=False)
+    temperatura: Mapped[float] = mapped_column(Float, nullable=True)
+    humedad: Mapped[float] = mapped_column(Float, nullable=True)
     tipo_observacion: Mapped[str] = mapped_column(String(50), nullable=False)
     especie_tipo: Mapped[str] = mapped_column(String(100), nullable=False)
     notas: Mapped[str] = mapped_column(String(255), nullable=True) # Puede estar vacío

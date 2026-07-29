@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import Session
 from sqlalchemy import select
 from typing import Optional, List
 from datetime import date
@@ -10,7 +11,6 @@ from app.modulos.monitoreo.schemas import HistorialResponse, ReporteMonitoreoCre
 import os
 import uuid
 import shutil
-
 # ==========================================
 # CONFIGURACIÓN DEL ROUTER
 # ==========================================
@@ -18,6 +18,7 @@ router = APIRouter(
     prefix="/api/monitoreo",
     tags=["Historial y Reportes de Monitoreo"]
 )
+
 # ==========================================
 # ENDPOINTS
 # ==========================================
@@ -56,48 +57,34 @@ async def obtener_historial_monitoreo(
         "data": reportes_db
     }
 @router.post("/reportes")
-async def crear_reporte_monitoreo(
-    payload: ReporteMonitoreoCreate,
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Motor de inserción del formulario. 
-    Recibe un payload complejo y valida la estructura con Pydantic.
-    """
-    # 1. Crear el registro principal
-    nuevo_reporte = ReporteMonitoreo(
-        id_invernadero=payload.id_invernadero,
-        id_usuario=payload.id_usuario,
-        zona=payload.zona,
-        seccion=payload.seccion,
-        tipo_observacion=payload.tipo_observacion,
-        especie_tipo=payload.especie_tipo,
-        nivel_infestacion=payload.nivel_infestacion,
-        notas=payload.notas,
-        fecha_registro=date.today() 
-    )
-    db.add(nuevo_reporte)
-    await db.flush() 
-    
-    # 2. Guardar el arreglo dinámico
-    for obs in payload.observables:
-        nuevo_observable = ReporteObservable( 
-            id_reporte=nuevo_reporte.id_reporte,
-            punto_visible=obs.punto_visible,
-            cantidad=obs.cantidad
+def crear_reporte_monitoreo(payload: ReporteMonitoreoCreate, db: Session = Depends(get_db)):
+    try:
+        # 1. Aquí va toda la lógica que ya tenías para guardar en la base de datos
+        nuevo_reporte = ReporteMonitoreo(
+            id_invernadero=payload.id_invernadero,
+            id_usuario=payload.id_usuario,
+            zona=payload.zona,
+            seccion=payload.seccion,
+            temperatura=payload.temperatura,
+            humedad=payload.humedad,
+            tipo_observacion=payload.tipo_observacion,
+            especie_tipo=payload.especie_tipo,
+            nivel_infestacion=payload.nivel_infestacion,
+            notas=payload.notas
         )
-        db.add(nuevo_observable)
-    
-    # 3. Confirmar la transacción
-    await db.commit()
+        
+        db.add(nuevo_reporte)
+        db.commit()
+        db.refresh(nuevo_reporte)
+        
+        return {"mensaje": "Reporte creado con éxito", "id": nuevo_reporte.id_reporte}
 
-    return {
-        "status": "success",
-        "message": "Reporte principal y observables guardados correctamente",
-        "id_generado": nuevo_reporte.id_reporte, # Le mandamos al front el ID nuevo como extra
-        "datos_recibidos": payload.model_dump()
-    }
-
+    except Exception as e:
+        # Esto imprimirá el error exacto y con lujo de detalle en tu terminal de Uvicorn
+        print("--- ERROR REAL EN EL ENDPOINT ---")
+        import traceback
+        traceback.print_exc()
+        raise e
 # ===========================
 # ENDPOINT PARA SUBIR FOTOS
 # ===========================
