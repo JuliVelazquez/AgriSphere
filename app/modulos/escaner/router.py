@@ -8,6 +8,7 @@ from app.auth.models import Usuario, ExpedienteTrabajador
 from app.modulos.escaner.schemas import EscanerRequest, EscanerResponse
 from app.modulos.empresa.models import Invernadero
 from app.modulos.escaner.schemas import EscanerRequest, EscanerResponse, ZonaAsignada, AsignacionesResponse
+from app.utils.qr_security import validar_firma_qr
 
 router = APIRouter(prefix="/api/escaner", tags=["Escáner QR"])
 
@@ -17,26 +18,79 @@ async def validar_qr(
     db: AsyncSession = Depends(get_db)
 ):
     try:
-        # 1. Parsear el string del QR: "usr_1:timestamp_1234567890:sig_ab89f3"
+        # 1. Separar las tres partes del QR.
         partes = payload.qr_string.split(":")
+
         if len(partes) != 3:
             raise ValueError("Formato inválido")
 
-        usuario_id = int(partes[0].replace("usr_", ""))
-        timestamp_qr = int(partes[1].replace("timestamp_", ""))
+        if not partes[0].startswith("usr_"):
+            raise ValueError("ID de usuario inválido")
 
-        # 2. Validar que no haya expirado (60 segundos de vigencia)
-        timestamp_actual = int(datetime.now(timezone.utc).timestamp())
-        if timestamp_actual - timestamp_qr > 60:
+        if not partes[1].startswith("timestamp_"):
+            raise ValueError("Timestamp inválido")
+
+        if not partes[2].startswith("sig_"):
+            raise ValueError("Firma inválida")
+
+        usuario_id = int(
+            partes[0].replace("usr_", "", 1)
+        )
+
+        timestamp_qr = int(
+            partes[1].replace("timestamp_", "", 1)
+        )
+
+        firma_recibida = partes[2].replace(
+            "sig_",
+            "",
+            1
+        )
+
+        # 2. Validar que la firma corresponda
+        # al usuario y timestamp recibidos.
+        firma_correcta = validar_firma_qr(
+            usuario_id=usuario_id,
+            timestamp=timestamp_qr,
+            firma_recibida=firma_recibida
+        )
+
+        if not firma_correcta:
             return EscanerResponse(
                 status="denegado",
                 acceso=False,
-                mensaje="Código QR expirado. Pide al trabajador que genere uno nuevo."
+                mensaje="La firma del código QR no es válida."
             )
 
-        # 3. Buscar al usuario en la base de datos
+        # 3. Validar vigencia.
+        timestamp_actual = int(
+            datetime.now(timezone.utc).timestamp()
+        )
+
+        edad_qr = timestamp_actual - timestamp_qr
+
+        if edad_qr < 0:
+            return EscanerResponse(
+                status="denegado",
+                acceso=False,
+                mensaje="La fecha del código QR no es válida."
+            )
+
+        if edad_qr > 60:
+            return EscanerResponse(
+                status="denegado",
+                acceso=False,
+                mensaje=(
+                    "Código QR expirado. Pide al trabajador "
+                    "que genere uno nuevo."
+                )
+            )
+
+        # 4. Buscar al usuario.
         resultado = await db.execute(
-            select(Usuario).where(Usuario.id_usuario == usuario_id)
+            select(Usuario).where(
+                Usuario.id_usuario == usuario_id
+            )
         )
         usuario = resultado.scalar_one_or_none()
 
@@ -47,7 +101,7 @@ async def validar_qr(
                 mensaje="Usuario no encontrado."
             )
 
-        # 4. Buscar su expediente para obtener el área/puesto
+        # 5. Buscar expediente.
         resultado_exp = await db.execute(
             select(ExpedienteTrabajador).where(
                 ExpedienteTrabajador.usuario_id == usuario_id
@@ -60,10 +114,20 @@ async def validar_qr(
             acceso=True,
             mensaje="Acceso concedido.",
             nombre=usuario.nombre,
-            puesto=expediente.area_rol if expediente else "Sin área asignada"
+            puesto=(
+                expediente.area_rol
+                if expediente
+                else "Sin área asignada"
+            )
         )
 
-    except Exception:
+    except Exception as error:
+        print(
+            "Error al validar QR:",
+            type(error).__name__,
+            str(error)
+        )
+
         return EscanerResponse(
             status="error",
             acceso=False,

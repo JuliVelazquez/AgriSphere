@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import Session
@@ -27,7 +27,7 @@ async def obtener_historial_monitoreo(
     fecha: Optional[date] = None,
     id_invernadero: Optional[int] = None,
     id_usuario: Optional[int] = None,
-    db: AsyncSession = Depends(get_db)  # Es la llave de tu base de datos
+    db: AsyncSession = Depends(get_db)  # La llave de la BD
 ):
     """
     Obtiene el historial de reportes de monitoreo.
@@ -57,9 +57,11 @@ async def obtener_historial_monitoreo(
         "data": reportes_db
     }
 @router.post("/reportes")
-def crear_reporte_monitoreo(payload: ReporteMonitoreoCreate, db: Session = Depends(get_db)):
+async def crear_reporte_monitoreo(
+    payload: ReporteMonitoreoCreate,
+    db: AsyncSession = Depends(get_db)
+):
     try:
-        # 1. Aquí va toda la lógica que ya tenías para guardar en la base de datos
         nuevo_reporte = ReporteMonitoreo(
             id_invernadero=payload.id_invernadero,
             id_usuario=payload.id_usuario,
@@ -72,19 +74,29 @@ def crear_reporte_monitoreo(payload: ReporteMonitoreoCreate, db: Session = Depen
             nivel_infestacion=payload.nivel_infestacion,
             notas=payload.notas
         )
-        
-        db.add(nuevo_reporte)
-        db.commit()
-        db.refresh(nuevo_reporte)
-        
-        return {"mensaje": "Reporte creado con éxito", "id": nuevo_reporte.id_reporte}
 
-    except Exception as e:
-        # Esto imprimirá el error exacto y con lujo de detalle en tu terminal de Uvicorn
+        db.add(nuevo_reporte)
+
+        await db.commit()
+        await db.refresh(nuevo_reporte)
+
+        return {
+            "status": "success",
+            "mensaje": "Reporte creado con éxito",
+            "id": nuevo_reporte.id_reporte
+        }
+
+    except Exception as error:
+        await db.rollback()
+
         print("--- ERROR REAL EN EL ENDPOINT ---")
         import traceback
         traceback.print_exc()
-        raise e
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
 # ===========================
 # ENDPOINT PARA SUBIR FOTOS
 # ===========================

@@ -3,7 +3,7 @@ import bcrypt
 import math
 from typing import List
 from datetime import datetime, timedelta, timezone
-
+from uuid import uuid4
 from jose import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -37,12 +37,12 @@ def crear_token_acceso(data: dict) -> str:
     
     # Payload exacto basado en la especificación técnica
     payload = {
-        "sub": data.get("sub"),
-        "rol": data.get("rol"),
-        "device_id": data.get("device_id"),
-        "iat": int(ahora.timestamp()),     
-        "exp": int(tiempo_expiracion.timestamp()) 
-    }
+    "sub": str(data.get("sub")),
+    "rol": data.get("rol"),
+    "device_id": data.get("device_id"),
+    "iat": int(ahora.timestamp()),
+    "exp": int(tiempo_expiracion.timestamp())
+   }
     
     # Firmamos el token con la configuración del archivo .env
     token_encriptado = jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
@@ -62,6 +62,36 @@ def decodificar_token(token: str) -> dict:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El token ha expirado o es inválido."
         )
+
+
+def crear_token_reset(
+    usuario_id: int,
+    otp_id: int
+) -> str:
+    ahora = datetime.now(timezone.utc)
+    expiracion = ahora + timedelta(minutes=15)
+
+    jti = str(uuid4())
+
+    payload = {
+        "sub": str(usuario_id),
+        "tipo": "reset_password",
+        "otp_id": int(otp_id),
+        "jti": jti,
+        "iat": int(ahora.timestamp()),
+        "exp": int(expiracion.timestamp())
+    }
+
+    print("NUEVO RESET TOKEN")
+    print("OTP ID:", otp_id)
+    print("JTI:", jti)
+    print("PAYLOAD:", payload)
+
+    return jwt.encode(
+        payload,
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM
+    )
 
 # ==========================================
 # 3. SEGURIDAD Y PROTECCIÓN DE RUTAS (ROLES)

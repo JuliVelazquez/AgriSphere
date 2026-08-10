@@ -39,49 +39,73 @@ async def actualizar_parametros_empresa(
         "datos": empresa
     }
 
-@router.get("/api/reloj/marcajes", response_model=list[MarcajeOutput])
-async def obtener_registro_marcajes(db: AsyncSession = Depends(get_db)):
+@router.get(
+    "/api/reloj/marcajes",
+    response_model=list[MarcajeOutput]
+)
+async def obtener_registro_marcajes(
+    db: AsyncSession = Depends(get_db)
+):
     resultado = await db.execute(
-        select(MarcajeReloj)
+        select(MarcajeReloj, Usuario.nombre)
+        .outerjoin(
+            Usuario,
+            Usuario.id_usuario == MarcajeReloj.empleado_id
+        )
+        .order_by(MarcajeReloj.id.desc())
     )
-    registros = resultado.scalars().all()
-    
-    output = []
-    for r in registros:
-        output.append(MarcajeOutput(
-            id=r.id,
-            fecha=r.fecha,
-            hora=r.hora,
-            empleado_id=r.empleado_id,
-            nombre_empleado= "Pendiente",
-            tipo_evento=r.tipo_evento
-        ))
-        
-    return output
 
-@router.post("/api/reloj/marcajes", response_model=MarcajeOutput)
+    registros = resultado.all()
+
+    return [
+        MarcajeOutput(
+            id=marcaje.id,
+            fecha=marcaje.fecha,
+            hora=marcaje.hora,
+            empleado_id=marcaje.empleado_id,
+            nombre_empleado=nombre_usuario or "Desconocido",
+            tipo_evento=marcaje.tipo_evento
+        )
+        for marcaje, nombre_usuario in registros
+    ]
+
+
+@router.post(
+    "/api/reloj/marcajes",
+    response_model=MarcajeOutput
+)
 async def crear_marcaje(
     datos: MarcajeInput,
     db: AsyncSession = Depends(get_db)
 ):
+    # Comprobar primero que el empleado exista
+    resultado_usuario = await db.execute(
+        select(Usuario).where(
+            Usuario.id_usuario == datos.empleado_id
+        )
+    )
+    usuario = resultado_usuario.scalar_one_or_none()
+
+    if not usuario:
+        raise HTTPException(
+            status_code=404,
+            detail="Empleado no encontrado."
+        )
+
     nuevo = MarcajeReloj(
         empleado_id=datos.empleado_id,
         tipo_evento=datos.tipo_evento
     )
+
     db.add(nuevo)
     await db.commit()
     await db.refresh(nuevo)
-
-    resultado = await db.execute(
-        select(Usuario).where(Usuario.id_usuario == nuevo.empleado_id)
-    )
-    usuario = resultado.scalar_one_or_none()
 
     return MarcajeOutput(
         id=nuevo.id,
         fecha=nuevo.fecha,
         hora=nuevo.hora,
         empleado_id=nuevo.empleado_id,
-        nombre_empleado=usuario.nombre if usuario else "Desconocido",
+        nombre_empleado=usuario.nombre,
         tipo_evento=nuevo.tipo_evento
     )

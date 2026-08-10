@@ -2,10 +2,13 @@ from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, cast, Date
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select, desc, cast, update, Date
 from datetime import datetime, date, time, timedelta, timezone
+import time as time_module
 from typing import Optional
 import random
+from app.utils.qr_security import generar_firma_qr
 
 # 1. Base de datos
 from app.database import get_db
@@ -22,6 +25,7 @@ from app.modulos.empresa.models import Empresa
 
 # 3. Utilidades
 from app.auth.utils import (
+    crear_token_reset,
     verificar_password, 
     crear_token_acceso, 
     PermitirRoles,
@@ -95,10 +99,10 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
                 detail="Se requiere ubicación GPS activa para acceder desde la aplicación móvil."
             )
 
-        # Coordenadas maestras de la empresa (Después leeremos el de la BD, por ahora usamos Tepic)
+        # MOCK temporal para poder probar el Login sin que se caiga el servidor
         LAT_EMPRESA = 21.5041
         LON_EMPRESA = -104.8945
-        RADIO_PERMITIDO = 50.0  # El trabajador debe estar a menos de 50 metros
+        RADIO_PERMITIDO = 50.0 
         
         distancia = calcular_distancia_metros(
             payload.ubicacion.latitud,
@@ -112,6 +116,43 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Acceso denegado. Estás a {int(distancia)} metros del Invernadero. Acércate a la zona de trabajo."
             )
+        
+# # 4. Procesar telemetría opcional y Validación de Geo-cerca
+#     if payload.ui_device == "app_movil":
+#         if not payload.ubicacion:
+#             raise HTTPException(
+#                 status_code=status.HTTP_400_BAD_REQUEST, 
+#                 detail="Se requiere ubicación GPS activa para acceder desde la aplicación móvil."
+#             )
+
+#         # Consultar la configuración espacial del invernadero asignado en la base de datos
+#         query_invernadero = select(Invernadero).where(Invernadero.id_invernadero == usuario_db.id_invernadero)
+#         resultado = await db.execute(query_invernadero)
+#         invernadero_asignado = resultado.scalar_one_or_none()
+
+#         if not invernadero_asignado:
+#             raise HTTPException(
+#                 status_code=status.HTTP_404_NOT_FOUND,
+#                 detail="No se encontró la configuración del invernadero asignado para validar la ubicación."
+#             )
+
+#         # Extraer los parámetros de la geo-cerca desde la entidad
+#         LAT_EMPRESA = invernadero_asignado.latitud_central
+#         LON_EMPRESA = invernadero_asignado.longitud_central
+#         RADIO_PERMITIDO = invernadero_asignado.radio_cobertura_m
+        
+#         distancia = calcular_distancia_metros(
+#             payload.ubicacion.latitud,
+#             payload.ubicacion.longitud,
+#             LAT_EMPRESA,
+#             LON_EMPRESA
+#         )
+
+#         if distancia > RADIO_PERMITIDO:
+#             raise HTTPException(
+#                 status_code=status.HTTP_403_FORBIDDEN,
+#                 detail=f"Acceso denegado. Estás a {int(distancia)} metros del Invernadero. Acércate a la zona de trabajo."
+#             )
     # 5. Generar claims y firmar token JWT
     data_para_token = {
         "sub": str(usuario_db.id_usuario),
@@ -135,16 +176,38 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
 # ==========================================
 # 2. OPERACIONES DE INGRESO (TRABAJADOR / QR)
 # ==========================================
+
 @router.get("/usuarios/me/qr", response_model=QRResponse)
-async def generar_payload_qr(current_user: dict = Depends(PermitirRoles(["Usuario", "rol_rieg", "rol_fito", "rol_prod", "rol_mant", "rol_empa", "rol_alma", "rol_moni"]))):
+async def generar_payload_qr(
+    current_user: dict = Depends(
+        PermitirRoles([
+            "Usuario",
+            "Oficina",
+            "Jefe Área"
+        ])
+    )
+):
     """
-    B. Operaciones de Ingreso: Genera el string encriptado para el QR efímero del trabajador.
+    B. Operaciones de Ingreso:
+    Genera el string firmado para el QR efímero del trabajador.
     """
-    timestamp_actual = int(time.time())
-    
-    # Amarramos el QR al ID real del token descodificado
-    qr_string = f"usr_{current_user['sub']}:timestamp_{timestamp_actual}:sig_ab89f3"
-    
+    timestamp_actual = int(time_module.time())
+
+    # El sub del token contiene el ID del usuario autenticado.
+    usuario_id = int(current_user["sub"])
+
+    # La firma cambia cuando cambia el usuario o el timestamp.
+    firma = generar_firma_qr(
+        usuario_id=usuario_id,
+        timestamp=timestamp_actual
+    )
+
+    qr_string = (
+        f"usr_{usuario_id}:"
+        f"timestamp_{timestamp_actual}:"
+        f"sig_{firma}"
+    )
+
     return QRResponse(
         data=QRData(
             qr_string_data=qr_string,
@@ -216,7 +279,10 @@ async def verificar_pass_match(payload: PassMatchRequest, db: AsyncSession = Dep
         )
         
     # Validar coincidencia segura sin exponer el texto plano
-    coincide = verificar_password(payload.password_a_verificar, usuario_db.password_hash)
+    coincide = verificar_password(
+    payload.password_a_verificar,
+    usuario_db.contraseña
+    )
     
     return {
         "status": "success",
@@ -224,61 +290,106 @@ async def verificar_pass_match(payload: PassMatchRequest, db: AsyncSession = Dep
         "message": "La contraseña coincide con los registros." if coincide else "La contraseña NO coincide."
     }
 
+
 @router.post("/trabajador", status_code=201)
-async def registrar_trabajador(payload: TrabajadorCreate, db: AsyncSession = Depends(get_db)):
-    """
-    ### Alta de Trabajador y Expediente (Recursos Humanos)
-    Recibe el payload masivo, divide la información para proteger las credenciales
-    y almacena el expediente operativo del trabajador.
-    """
-    # 1. Encriptar la contraseña de forma segura (usando ==implementación nativa)
-    hashed_password = encriptar_password(payload.contraseña)
-    
-    # 2. Crear el registro en la tabla de Seguridad ('usuarios')
-    nuevo_usuario = Usuario(
-        nombre=payload.nombre_completo,
-        usuario=payload.nombre_usuario,
-        contraseña=hashed_password,
-        rol=payload.rol_asignado
+async def registrar_trabajador(
+    payload: TrabajadorCreate,
+    db: AsyncSession = Depends(get_db)
+):
+    # 1. Verificar que el nombre de usuario no exista
+    resultado_usuario = await db.execute(
+        select(Usuario).where(
+            Usuario.usuario == payload.nombre_usuario
+        )
     )
-    
-    db.add(nuevo_usuario)
-    # Hacemos un flush para que PostgreSQL le asigne un ID al usuario sin cerrar la transacción
-    await db.flush() 
-    
-    # 3. Crear el registro en la tabla de Recursos Humanos ('expedientes_trabajadores')
-    nuevo_expediente = ExpedienteTrabajador(
-        usuario_id=nuevo_usuario.id_usuario, # Aquí usamos el ID recién generado
-        tipo_usuario=payload.expediente.tipo_usuario,
-        estatus=payload.expediente.estatus,
-        empresa_id=payload.expediente.empresa_id,
-        empresa=payload.expediente.empresa,
-        area_rol=payload.expediente.area_rol,
-        actividad=payload.expediente.actividad,
-        access_level=payload.expediente.access_level,
-        curp=payload.expediente.curp,
-        telefono=payload.expediente.telefono,
-        email=payload.expediente.email,
-        contacto=payload.expediente.contacto,
-        cp=payload.expediente.cp,
-        salud=payload.expediente.salud,
-        acepta=payload.expediente.acepta,
-        historial=payload.expediente.historial
-    )
-    
-    db.add(nuevo_expediente)
-    
-    # 4. Confirmar los cambios en ambas tablas al mismo tiempo
-    await db.commit()
-    
-    return {
-        "status": "success",
-        "message": "Trabajador y expediente creados correctamente",
-        "data": {
-            "usuario_id": nuevo_usuario.id_usuario,
-            "usuario": nuevo_usuario.usuario
+
+    if resultado_usuario.scalar_one_or_none():
+        raise HTTPException(
+            status_code=400,
+            detail="El nombre de usuario ya está registrado."
+        )
+
+    # 2. Verificar que la CURP no exista
+    if payload.expediente.curp:
+        resultado_curp = await db.execute(
+            select(ExpedienteTrabajador).where(
+                ExpedienteTrabajador.curp == payload.expediente.curp
+            )
+        )
+
+        if resultado_curp.scalar_one_or_none():
+            raise HTTPException(
+                status_code=400,
+                detail="La CURP ya está registrada."
+            )
+
+    try:
+        # 3. Encriptar la contraseña de forma segura (usando ==implementación nativa)
+        hashed_password = encriptar_password(payload.contraseña)
+
+        # 4. Crear el registro en la tabla de Seguridad ('usuarios')
+        nuevo_usuario = Usuario(
+            nombre=payload.nombre_completo,
+            usuario=payload.nombre_usuario,
+            contraseña=hashed_password,
+            rol=payload.rol_asignado
+        )
+
+        db.add(nuevo_usuario)
+
+        # Hacemos un flush para que PostgreSQL le asigne un ID al usuario sin cerrar la transacción
+        await db.flush()
+
+        # 5. # 3. Crear el registro en la tabla de Recursos Humanos ('expedientes_trabajadores')
+        nuevo_expediente = ExpedienteTrabajador(
+            usuario_id=nuevo_usuario.id_usuario,
+            tipo_usuario=payload.expediente.tipo_usuario,
+            estatus=payload.expediente.estatus,
+            empresa_id=payload.expediente.empresa_id,
+            empresa=payload.expediente.empresa,
+            area_rol=payload.expediente.area_rol,
+            actividad=payload.expediente.actividad,
+            access_level=payload.expediente.access_level,
+            curp=payload.expediente.curp,
+            telefono=payload.expediente.telefono,
+            email=payload.expediente.email,
+            contacto=payload.expediente.contacto,
+            cp=payload.expediente.cp,
+            salud=payload.expediente.salud,
+            acepta=payload.expediente.acepta,
+            historial=payload.expediente.historial
+        )
+
+        db.add(nuevo_expediente)
+
+        # 6. Confirmar los cambios en ambas tablas al mismo tiempo
+        await db.commit()
+
+        return {
+            "status": "success",
+            "message": "Trabajador y expediente creados correctamente",
+            "data": {
+                "usuario_id": nuevo_usuario.id_usuario,
+                "usuario": nuevo_usuario.usuario
+            }
         }
-    }
+
+    except IntegrityError:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=400,
+            detail="Ya existe un registro con alguno de los datos únicos proporcionados."
+        )
+
+    except Exception:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail="Ocurrió un error al registrar al trabajador."
+        )
+    
 
 # ==========================================
 # CONFIGURACIÓN DE EMPRESA (GEOCERCA)
@@ -520,7 +631,7 @@ async def registrar_permiso(
 #endpoint de empleados
 @router.get("/empleados/me", response_model=PerfilEmpleadoResponse)
 async def obtener_perfil_empleado(
-    current_user: dict = Depends(PermitirRoles(["Usuario", "Jefe Área", "Oficina"])),
+    current_user: dict = Depends(PermitirRoles(["Jefe Área", "Oficina"])),
     db: AsyncSession = Depends(get_db)
 ):
     usuario_id = int(current_user["sub"])
@@ -591,96 +702,208 @@ async def solicitar_recuperacion(
 
     return RecuperarPasswordResponse()
 
-@router.post("/verificar-codigo")
+@router.post(
+    "/verificar-codigo",
+    response_model=VerificarCodigoResponse
+)
 async def verificar_codigo_otp(
     payload: VerificarCodigoRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    # 1. Buscar usuario por correo
+    # 1. Buscar usuario
     resultado = await db.execute(
-        select(Usuario).where(Usuario.correo == payload.correo)
+        select(Usuario).where(
+            Usuario.correo == payload.correo
+        )
     )
     usuario = resultado.scalar_one_or_none()
 
     if not usuario:
-        raise HTTPException(status_code=400, detail="Código inválido o expirado.")
+        raise HTTPException(
+            status_code=400,
+            detail="Código inválido o expirado."
+        )
 
-    # 2. Buscar el OTP más reciente del usuario que no haya sido usado
+    # 2. Buscar el OTP más reciente sin utilizar
     resultado_otp = await db.execute(
         select(RecuperacionPassword)
         .where(
-            RecuperacionPassword.usuario_id == usuario.id_usuario,
-            RecuperacionPassword.codigo_otp == payload.codigo_otp,
-            RecuperacionPassword.usado == False,
-            RecuperacionPassword.expires_at > datetime.now(timezone.utc)
+            RecuperacionPassword.usuario_id
+            == usuario.id_usuario,
+            RecuperacionPassword.codigo_otp
+            == payload.codigo_otp,
+            RecuperacionPassword.usado.is_(False),
+            RecuperacionPassword.expires_at
+            > datetime.now(timezone.utc)
         )
-        .order_by(desc(RecuperacionPassword.creado_en))
+        .order_by(
+            desc(RecuperacionPassword.creado_en)
+        )
         .limit(1)
     )
+
     otp = resultado_otp.scalar_one_or_none()
 
     if not otp:
-        raise HTTPException(status_code=400, detail="Código inválido o expirado.")
+        raise HTTPException(
+            status_code=400,
+            detail="Código inválido, expirado o utilizado anteriormente."
+        )
 
-    # 3. Generar reset_token de un solo uso (JWT que caduca en 15 minutos)
-    reset_token = crear_token_acceso(data={
-        "sub": str(usuario.id_usuario),
-        "tipo": "reset_password",
-        "otp_id": otp.id
-    })
+    reset_token = crear_token_reset(
+        usuario_id=usuario.id_usuario,
+        otp_id=otp.id
+    )
 
-    # 4. Guardar el reset_token e invalidar el OTP
-    otp.usado = True
-    otp.reset_token = reset_token
-    await db.commit()
+    try:
+        # Invalidar todos los registros que tengan ese mismo código
+        await db.execute(
+            update(RecuperacionPassword)
+            .where(
+                RecuperacionPassword.usuario_id
+                == usuario.id_usuario,
+                RecuperacionPassword.codigo_otp
+                == payload.codigo_otp,
+                RecuperacionPassword.usado.is_(False)
+            )
+            .values(usado=True)
+        )
 
-    return VerificarCodigoResponse(reset_token=reset_token)
+        # Guardar el token en el registro seleccionado
+        await db.execute(
+            update(RecuperacionPassword)
+            .where(
+                RecuperacionPassword.id == otp.id
+            )
+            .values(reset_token=reset_token)
+        )
 
-@router.post("/reset-password", response_model=ResetPasswordResponse)
+        await db.commit()
+
+    except Exception as error:
+        await db.rollback()
+        print("ERROR AL VERIFICAR OTP:", error)
+
+        raise HTTPException(
+            status_code=500,
+            detail="No fue posible verificar el código."
+        )
+
+    return VerificarCodigoResponse(
+        reset_token=reset_token
+    )
+
+@router.post(
+    "/reset-password",
+    response_model=ResetPasswordResponse
+)
 async def reset_password(
     payload: ResetPasswordRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    # 1. Decodificar el token para sacar el ID del usuario
+    # 1. Decodificar token
     try:
-        datos_token = decodificar_token(payload.reset_token) 
-        usuario_id = datos_token.get("sub")
-    except Exception:
-        raise HTTPException(status_code=400, detail="El token ha expirado o es inválido.")
-        
-    if not usuario_id:
-        raise HTTPException(status_code=400, detail="Token inválido: falta ID de usuario.")
-
-    # 2. Buscar el registro del OTP en la base de datos (solo usando el token)
-    resultado_otp = await db.execute(
-        select(RecuperacionPassword)
-        .where(
-            RecuperacionPassword.reset_token == payload.reset_token
+        datos_token = decodificar_token(
+            payload.reset_token
         )
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail="El token ha expirado o es inválido."
+        )
+
+    usuario_id = datos_token.get("sub")
+    tipo_token = datos_token.get("tipo")
+    otp_id = datos_token.get("otp_id")
+
+    if not usuario_id or not otp_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Token incompleto o inválido."
+        )
+
+    if tipo_token != "reset_password":
+        raise HTTPException(
+            status_code=400,
+            detail="El token no sirve para restablecer contraseñas."
+        )
+
+    nueva_contraseña = encriptar_password(
+        payload.nueva_password
     )
-    otp = resultado_otp.scalar_one_or_none()
 
-    if not otp:
-        raise HTTPException(status_code=400, detail="Token inválido o no encontrado.")
+    try:
+        # 2. Consumir el token
+        resultado_token = await db.execute(
+            update(RecuperacionPassword)
+            .where(
+                RecuperacionPassword.id == int(otp_id),
+                RecuperacionPassword.usuario_id
+                == int(usuario_id),
+                RecuperacionPassword.reset_token
+                == payload.reset_token
+            )
+            .values(reset_token=None)
+            .returning(RecuperacionPassword.id)
+        )
 
-    # Validar que no se haya usado ya para cambiar la contraseña
-    if getattr(otp, 'reset_usado', False):
-        raise HTTPException(status_code=400, detail="Este token ya fue utilizado para cambiar la contraseña.")
+        token_consumido = (
+            resultado_token.scalar_one_or_none()
+        )
 
-    # 3. Buscar al usuario dueño de ese token
-    resultado_usuario = await db.execute(
-        select(Usuario).where(Usuario.id_usuario == int(usuario_id))
-    )
-    usuario = resultado_usuario.scalar_one_or_none()
+        if token_consumido is None:
+            await db.rollback()
 
-    if not usuario:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Token inválido, no encontrado "
+                    "o utilizado anteriormente."
+                )
+            )
 
-    # 4. Encriptar la nueva contraseña y actualizar
-    usuario.hashed_password = encriptar_password(payload.nueva_password)
+        # 3. Actualizar contraseña directamente
+        resultado_usuario = await db.execute(
+            update(Usuario)
+            .where(
+                Usuario.id_usuario == int(usuario_id)
+            )
+            .values({
+                Usuario.contraseña: nueva_contraseña
+            })
+            .returning(Usuario.id_usuario)
+        )
 
-    # 5. Invalidar el token marcándolo como usado de forma definitiva
-    otp.reset_usado = True
-    await db.commit()
+        usuario_actualizado = (
+            resultado_usuario.scalar_one_or_none()
+        )
+
+        if usuario_actualizado is None:
+            await db.rollback()
+
+            raise HTTPException(
+                status_code=404,
+                detail="Usuario no encontrado."
+            )
+
+        # Token y contraseña se guardan juntos
+        await db.commit()
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        await db.rollback()
+
+        print(
+            "ERROR AL RESTABLECER CONTRASEÑA:",
+            type(error).__name__,
+            str(error)
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="No fue posible actualizar la contraseña."
+        )
 
     return ResetPasswordResponse()
