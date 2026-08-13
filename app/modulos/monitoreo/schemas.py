@@ -46,3 +46,11 @@ class CatalogoObservableResponse(BaseModel):
 
     class Config:
         from_attributes = True  # Si usas Pydantic v1, esto era orm_mode = True
+
+class ZonaInvernaderoResponse(BaseModel):
+    id_zona: int
+    nombre: str
+    estado: str
+
+    class Config:
+        from_attributes = True

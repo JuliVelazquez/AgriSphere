@@ -20,6 +20,7 @@ class ReporteMonitoreo(Base):
     nivel_infestacion: Mapped[str] = mapped_column(String(50), nullable=False)
     # Esto le dice a SQLAlchemy que un reporte puede tener muchos "observables"
     observables = relationship("ReporteObservable", back_populates="reporte")
+    evidencias = relationship("EvidenciaMonitoreo", back_populates="reporte", cascade="all, delete-orphan")
 
 # TABLA PARA EL ARREGLO DINÁMICO
 class ReporteObservable(Base):
@@ -35,6 +36,31 @@ class ReporteObservable(Base):
     # Relación de vuelta hacia el reporte
     reporte = relationship("ReporteMonitoreo", back_populates="observables")
 
+class EvidenciaMonitoreo(Base):
+    __tablename__ = "evidencias_monitoreo"
+
+    id_evidencia: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    id_reporte: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("reportes_monitoreo.id_reporte"),
+        nullable=False
+    )
+
+    url_foto: Mapped[str] = mapped_column(
+        String(500),
+        nullable=False
+    )
+
+    reporte = relationship(
+        "ReporteMonitoreo",
+        back_populates="evidencias"
+    )
+
 class CatalogoObservable(Base):
     __tablename__ = "catalogo_observables"
 
@@ -42,3 +68,29 @@ class CatalogoObservable(Base):
     tipo = Column(String(50), nullable=False)
     nombre = Column(String(100), nullable=False)
     descripcion = Column(String(255), nullable=True)
+
+class ZonaInvernadero(Base):
+    __tablename__ = "zonas_invernadero"
+
+    id_zona = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    id_invernadero = Column(
+        Integer,
+        ForeignKey("invernaderos.id", ondelete="CASCADE"),
+        nullable=False
+    )
+
+    nombre = Column(
+        String(100),
+        nullable=False
+    )
+
+    estado = Column(
+        String(30),
+        nullable=False,
+        default="Activo"
+    )

@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_validator
 from datetime import datetime, date
 from typing import Optional, List
+import re
 
 # ==========================================
 # 1. ESQUEMAS PARA AUTENTICACIÓN (LOGIN)
@@ -196,28 +197,92 @@ class PerfilEmpleadoData(BaseModel):
     qr_string: str
 
 # ==========================================
+# 8.1 ESQUEMAS PARA LISTA DE EMPLEADOS
+# ==========================================
+
+class EmpleadoListaItem(BaseModel):
+    id_empleado: int
+    nombre_completo: str
+    rol: str
+    departamento: Optional[str] = None
+    estatus: Optional[str] = None
+
+
+class ListaEmpleadosResponse(BaseModel):
+    status: str = "success"
+    data: List[EmpleadoListaItem]
+
+# ==========================================
 # 9. ESQUEMAS PARA RECUPERACIÓN DE CONTRASEÑA
 # ==========================================
 
 class RecuperarPasswordRequest(BaseModel):
-    correo: str = Field(..., examples=["juan@empresa.com"])
+    correo: str = Field(
+        ...,
+        examples=["juan@empresa.com"]
+    )
+
 
 class RecuperarPasswordResponse(BaseModel):
     status: str = "success"
     message: str = "Si el correo existe, recibirás un código de recuperación."
 
+
 class VerificarCodigoRequest(BaseModel):
-    correo: str = Field(..., examples=["julissa@invernadero.com"])
-    codigo_otp: str = Field(..., examples=["123456"])
+    correo: str = Field(
+        ...,
+        examples=["julissa@invernadero.com"]
+    )
+    codigo_otp: str = Field(
+        ...,
+        examples=["123456"]
+    )
+
 
 class VerificarCodigoResponse(BaseModel):
     status: str = "success"
     message: str = "Código verificado correctamente."
     reset_token: str
 
+
 class ResetPasswordRequest(BaseModel):
-    reset_token: str = Field(..., examples=["eyJhbGci..."])
-    nueva_password: str = Field(..., examples=["NuevaContrasena2026*"])
+    reset_token: str = Field(
+        ...,
+        examples=["eyJhbGci..."]
+    )
+
+    nueva_password: str = Field(
+        ...,
+        min_length=8,
+        examples=["NuevaContrasena2026*"]
+    )
+
+    @field_validator("nueva_password")
+    @classmethod
+    def validar_password(cls, password: str):
+
+        if not re.search(r"[A-Z]", password):
+            raise ValueError(
+                "La contraseña debe contener al menos una mayúscula"
+            )
+
+        if not re.search(r"[a-z]", password):
+            raise ValueError(
+                "La contraseña debe contener al menos una minúscula"
+            )
+
+        if not re.search(r"\d", password):
+            raise ValueError(
+                "La contraseña debe contener al menos un número"
+            )
+
+        if not re.search(r"[^A-Za-z0-9]", password):
+            raise ValueError(
+                "La contraseña debe contener al menos un símbolo"
+            )
+
+        return password
+
 
 class ResetPasswordResponse(BaseModel):
     status: str = "success"

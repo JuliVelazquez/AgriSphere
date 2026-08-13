@@ -1,13 +1,28 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from sqlalchemy.orm import Session
 from sqlalchemy import select
 from typing import Optional, List
 from datetime import date
-from app.database import get_db 
-from app.modulos.monitoreo.models import ReporteMonitoreo, ReporteObservable, CatalogoObservable
-from app.modulos.monitoreo.schemas import HistorialResponse, ReporteMonitoreoCreate, CatalogoObservableResponse
+
+
+from app.database import get_db
+
+from app.modulos.monitoreo.models import (
+    ReporteMonitoreo,
+    ReporteObservable,
+    CatalogoObservable,
+    EvidenciaMonitoreo,
+    ZonaInvernadero
+)
+
+from app.modulos.monitoreo.schemas import (
+    HistorialResponse,
+    ReporteMonitoreoCreate,
+    CatalogoObservableResponse,
+    ZonaInvernaderoResponse
+)
+from app.auth.utils import PermitirRoles
+
 import os
 import uuid
 import shutil
@@ -19,6 +34,12 @@ router = APIRouter(
     tags=["Historial y Reportes de Monitoreo"]
 )
 
+ROLES_MONITOREO = [
+    "Usuario", 
+    "Jefe Área",
+    "Oficina"
+]
+
 # ==========================================
 # ENDPOINTS
 # ==========================================
@@ -27,7 +48,10 @@ async def obtener_historial_monitoreo(
     fecha: Optional[date] = None,
     id_invernadero: Optional[int] = None,
     id_usuario: Optional[int] = None,
-    db: AsyncSession = Depends(get_db)  # La llave de la BD
+    current_user: dict = Depends(
+        PermitirRoles(ROLES_MONITOREO)
+    ),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Obtiene el historial de reportes de monitoreo.
@@ -59,12 +83,18 @@ async def obtener_historial_monitoreo(
 @router.post("/reportes")
 async def crear_reporte_monitoreo(
     payload: ReporteMonitoreoCreate,
+    current_user: dict = Depends(
+        PermitirRoles(ROLES_MONITOREO)
+    ),
     db: AsyncSession = Depends(get_db)
 ):
     try:
+        # 1. Crear el reporte principal
         nuevo_reporte = ReporteMonitoreo(
             id_invernadero=payload.id_invernadero,
-            id_usuario=payload.id_usuario,
+            id_usuario=int(
+                current_user["sub"]
+            ),
             zona=payload.zona,
             seccion=payload.seccion,
             temperatura=payload.temperatura,
@@ -77,13 +107,32 @@ async def crear_reporte_monitoreo(
 
         db.add(nuevo_reporte)
 
+        # 2. Hacer flush para obtener el id_reporte
+        # SIN cerrar todavía la transacción
+        await db.flush()
+
+        # 3. Guardar todos los observables vinculados al reporte
+        for observable in payload.observables:
+            nuevo_observable = ReporteObservable(
+                id_reporte=nuevo_reporte.id_reporte,
+                punto_visible=observable.punto_visible,
+                cantidad=observable.cantidad
+            )
+
+            db.add(nuevo_observable)
+
+        # 4. Guardar reporte + observables juntos
         await db.commit()
+
+        # 5. Refrescar para tener los datos finales
         await db.refresh(nuevo_reporte)
 
+        # 6. Respuesta compatible con Android
         return {
-            "status": "success",
-            "mensaje": "Reporte creado con éxito",
-            "id": nuevo_reporte.id_reporte
+            "id_reporte": nuevo_reporte.id_reporte,
+            "fecha_registro": nuevo_reporte.fecha_registro,
+            "id_invernadero": nuevo_reporte.id_invernadero,
+            "id_usuario": nuevo_reporte.id_usuario
         }
 
     except Exception as error:
@@ -97,6 +146,7 @@ async def crear_reporte_monitoreo(
             status_code=500,
             detail=str(error)
         )
+    
 # ===========================
 # ENDPOINT PARA SUBIR FOTOS
 # ===========================
@@ -105,39 +155,102 @@ CARPETA_FOTOS = "static/fotos_monitoreo"
 os.makedirs(CARPETA_FOTOS, exist_ok=True)
 
 @router.post("/subir-fotos")
-async def subir_fotos_evidencia(fotos: List[UploadFile] = File(...)):
+async def subir_fotos_evidencia(
+    id_reporte: int = Form(...),
+    fotos: List[UploadFile] = File(...),
+    current_user: dict = Depends(
+        PermitirRoles(ROLES_MONITOREO)
+    ),
+    db: AsyncSession = Depends(get_db)
+):
     """
-    Recibe archivos fisicos, los guarda en el servidor
-    y devuelve un arreglo con las URLs definitivas.
+    Recibe fotografías, las guarda físicamente
+    y las relaciona con un reporte de monitoreo.
     """
+
+    # 1. Confirmar que el reporte realmente exista
+    reporte = await db.get(ReporteMonitoreo, id_reporte)
+
+    if reporte is None:
+        raise HTTPException(
+            status_code=404,
+            detail="El reporte indicado no existe"
+        )
+
     urls_definitivas = []
-    for foto in fotos:
-        # 1. Extraer la extensión del archivo (ej. .jpg, .png)
-        extension = foto.filename.split(".")[-1]
+    archivos_guardados = []
 
-        # 2. Crear un nombre único para que no choquen los archivos
-        nombre_unico = f"{uuid.uuid4()}.{extension}"
+    try:
+        # 2. Guardar todas las fotografías
+        for foto in fotos:
 
-        # 3. Armar la ruta completa donde se guardará
-        ruta_archivo = os.path.join(CARPETA_FOTOS, nombre_unico)
+            # Obtener extensión original
+            extension = os.path.splitext(foto.filename or "")[1]
 
-        # 4. Guardar el archivo fisico en el servidor
-        with open(ruta_archivo, "wb") as buffer:
-            shutil.copyfileobj(foto.file, buffer)
+            if not extension:
+                extension = ".jpg"
 
-        # 5. Generar la "URL" que le regresaremos a Android
-        url_final = f"/{ruta_archivo}".replace("\\", "/")
-        urls_definitivas.append(url_final)
+            # Crear nombre único
+            nombre_unico = f"{uuid.uuid4()}{extension}"
 
-# 6. Devolver el arreglo con las URLs como pide el requerimiento
-    return{
-      "status": "success",
-      "message": f"Se subieron{len(fotos)} fotos correctamente",
-      "urls": urls_definitivas
-}
+            # Ruta física
+            ruta_archivo = os.path.join(
+                CARPETA_FOTOS,
+                nombre_unico
+            )
+
+            # Guardar archivo
+            with open(ruta_archivo, "wb") as buffer:
+                shutil.copyfileobj(foto.file, buffer)
+
+            archivos_guardados.append(ruta_archivo)
+
+            # URL que podrá utilizar Android
+            url_final = f"/{ruta_archivo}".replace("\\", "/")
+            urls_definitivas.append(url_final)
+
+            # 3. Relacionar foto con el reporte
+            nueva_evidencia = EvidenciaMonitoreo(
+                id_reporte=id_reporte,
+                url_foto=url_final
+            )
+
+            db.add(nueva_evidencia)
+
+        # 4. Guardar las relaciones en PostgreSQL
+        await db.commit()
+
+        return {
+            "status": "success",
+            "message": f"Se subieron  {len(fotos)} fotos correctamente",
+            "urls": urls_definitivas
+        }
+
+    except Exception as error:
+
+        await db.rollback()
+
+        # Si algo falla, borrar también los archivos
+        # que alcanzaron a guardarse.
+        for ruta in archivos_guardados:
+            if os.path.exists(ruta):
+                os.remove(ruta)
+
+        import traceback
+        traceback.print_exc()
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
 
 @router.get("/catalogos/observables", response_model=List[CatalogoObservableResponse])
-async def obtener_catalogo(db: AsyncSession = Depends(get_db)):
+async def obtener_catalogo(
+    current_user: dict = Depends(
+        PermitirRoles(ROLES_MONITOREO)
+    ),
+    db: AsyncSession = Depends(get_db)
+):
     """
     Extrae el catálogo completo de observables para popular los 
     menús en cascada (Plagas, Enfermedades, Insectos Benéficos).
@@ -150,3 +263,31 @@ async def obtener_catalogo(db: AsyncSession = Depends(get_db)):
     catalogos = result.scalars().all()
     
     return catalogos
+
+@router.get(
+    "/invernaderos/{id_invernadero}/zonas",
+    response_model=List[ZonaInvernaderoResponse]
+)
+async def obtener_zonas_invernadero(
+    id_invernadero: int,
+    current_user: dict = Depends(
+        PermitirRoles(ROLES_MONITOREO)
+    ),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Devuelve las zonas activas pertenecientes
+    al invernadero seleccionado.
+    """
+
+    resultado = await db.execute(
+        select(ZonaInvernadero)
+        .where(
+            ZonaInvernadero.id_invernadero == id_invernadero,
+            ZonaInvernadero.estado == "Activo"
+        )
+        .order_by(ZonaInvernadero.id_zona)
+    )
+
+    return resultado.scalars().all()
+

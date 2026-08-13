@@ -44,6 +44,12 @@ async def actualizar_parametros_empresa(
     response_model=list[MarcajeOutput]
 )
 async def obtener_registro_marcajes(
+    current_user: dict = Depends(
+        PermitirRoles([
+            "Jefe Área",
+            "Oficina"
+        ])
+    ),
     db: AsyncSession = Depends(get_db)
 ):
     resultado = await db.execute(
@@ -76,6 +82,12 @@ async def obtener_registro_marcajes(
 )
 async def crear_marcaje(
     datos: MarcajeInput,
+    current_user: dict = Depends(
+        PermitirRoles([
+            "Jefe Área",
+            "Oficina"
+        ])
+    ),
     db: AsyncSession = Depends(get_db)
 ):
     # Comprobar primero que el empleado exista

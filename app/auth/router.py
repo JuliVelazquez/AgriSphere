@@ -58,7 +58,9 @@ from app.auth.schemas import (
     VerificarCodigoRequest,     
     VerificarCodigoResponse,
     ResetPasswordRequest, 
-    ResetPasswordResponse
+    ResetPasswordResponse,
+    EmpleadoListaItem,
+    ListaEmpleadosResponse
 )
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
@@ -91,78 +93,71 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
             detail="Credenciales incorrectas."
         )
 
-    # 4. Procesar telemetría opcional y Validación de Geo-cerca
+    # 4. Procesar telemetría opcional y validación de geocerca
     if payload.ui_device == "app_movil":
+
         if not payload.ubicacion:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, 
-                detail="Se requiere ubicación GPS activa para acceder desde la aplicación móvil."
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Se requiere ubicación GPS activa "
+                    "para acceder desde la aplicación móvil."
+                )
             )
 
-        # MOCK temporal para poder probar el Login sin que se caiga el servidor
-        LAT_EMPRESA = 21.5041
-        LON_EMPRESA = -104.8945
-        RADIO_PERMITIDO = 50.0 
-        
+        # Consultar la geocerca configurada en PostgreSQL
+        resultado_empresa = await db.execute(
+            select(Empresa).limit(1)
+        )
+
+        empresa_db = resultado_empresa.scalar_one_or_none()
+
+        if not empresa_db:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "No existe una geocerca configurada "
+                    "para la empresa."
+                )
+            )
+
+        lat_empresa = empresa_db.geocerca_latitud
+        lon_empresa = empresa_db.geocerca_longitud
+        radio_permitido = empresa_db.geocerca_radio_metros
+
         distancia = calcular_distancia_metros(
             payload.ubicacion.latitud,
             payload.ubicacion.longitud,
-            LAT_EMPRESA,
-            LON_EMPRESA
+            lat_empresa,
+            lon_empresa
         )
 
-        if distancia > RADIO_PERMITIDO:
+        if distancia > radio_permitido:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Acceso denegado. Estás a {int(distancia)} metros del Invernadero. Acércate a la zona de trabajo."
+                detail=(
+                    f"Acceso denegado. Estás a "
+                    f"{int(distancia)} metros del Invernadero. "
+                    f"Acércate a la zona de trabajo."
+                )
             )
-        
-# # 4. Procesar telemetría opcional y Validación de Geo-cerca
-#     if payload.ui_device == "app_movil":
-#         if not payload.ubicacion:
-#             raise HTTPException(
-#                 status_code=status.HTTP_400_BAD_REQUEST, 
-#                 detail="Se requiere ubicación GPS activa para acceder desde la aplicación móvil."
-#             )
 
-#         # Consultar la configuración espacial del invernadero asignado en la base de datos
-#         query_invernadero = select(Invernadero).where(Invernadero.id_invernadero == usuario_db.id_invernadero)
-#         resultado = await db.execute(query_invernadero)
-#         invernadero_asignado = resultado.scalar_one_or_none()
-
-#         if not invernadero_asignado:
-#             raise HTTPException(
-#                 status_code=status.HTTP_404_NOT_FOUND,
-#                 detail="No se encontró la configuración del invernadero asignado para validar la ubicación."
-#             )
-
-#         # Extraer los parámetros de la geo-cerca desde la entidad
-#         LAT_EMPRESA = invernadero_asignado.latitud_central
-#         LON_EMPRESA = invernadero_asignado.longitud_central
-#         RADIO_PERMITIDO = invernadero_asignado.radio_cobertura_m
-        
-#         distancia = calcular_distancia_metros(
-#             payload.ubicacion.latitud,
-#             payload.ubicacion.longitud,
-#             LAT_EMPRESA,
-#             LON_EMPRESA
-#         )
-
-#         if distancia > RADIO_PERMITIDO:
-#             raise HTTPException(
-#                 status_code=status.HTTP_403_FORBIDDEN,
-#                 detail=f"Acceso denegado. Estás a {int(distancia)} metros del Invernadero. Acércate a la zona de trabajo."
-#             )
     # 5. Generar claims y firmar token JWT
     data_para_token = {
         "sub": str(usuario_db.id_usuario),
-        "rol": usuario_db.rol.value if hasattr(usuario_db.rol, 'value') else str(usuario_db.rol),
+        "rol": (
+            usuario_db.rol.value
+            if hasattr(usuario_db.rol, "value")
+            else str(usuario_db.rol)
+        ),
         "device_id": payload.ui_device
     }
-    
-    token_jwt = crear_token_acceso(data=data_para_token)
 
-    # 6. Retornar la respuesta final con pydantic
+    token_jwt = crear_token_acceso(
+        data=data_para_token
+    )
+
+    # 6. Retornar respuesta final
     return LoginResponse(
         message="Autenticación correcta",
         data=TokenDataResponse(
@@ -179,24 +174,75 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 @router.get("/usuarios/me/qr", response_model=QRResponse)
 async def generar_payload_qr(
+    latitud: float,
+    longitud: float,
     current_user: dict = Depends(
         PermitirRoles([
-            "Usuario",
-            "Oficina",
-            "Jefe Área"
+            "Usuario"
         ])
-    )
+    ),
+    db: AsyncSession = Depends(get_db)
 ):
     """
-    B. Operaciones de Ingreso:
-    Genera el string firmado para el QR efímero del trabajador.
+    Genera el QR efímero del trabajador únicamente
+    si se encuentra dentro de la geocerca configurada.
     """
-    timestamp_actual = int(time_module.time())
 
-    # El sub del token contiene el ID del usuario autenticado.
-    usuario_id = int(current_user["sub"])
+    # 1. Consultar la geocerca de la empresa
+    resultado_empresa = await db.execute(
+        select(Empresa).limit(1)
+    )
 
-    # La firma cambia cuando cambia el usuario o el timestamp.
+    empresa_db = resultado_empresa.scalar_one_or_none()
+
+    if not empresa_db:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No existe una geocerca configurada para la empresa."
+        )
+
+    if (
+        empresa_db.geocerca_latitud is None
+        or empresa_db.geocerca_longitud is None
+        or empresa_db.geocerca_radio_metros is None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="La geocerca de la empresa está incompleta."
+        )
+
+    # 2. Calcular distancia del trabajador a la empresa
+    distancia = calcular_distancia_metros(
+        latitud,
+        longitud,
+        float(empresa_db.geocerca_latitud),
+        float(empresa_db.geocerca_longitud)
+    )
+
+    radio_permitido = float(
+        empresa_db.geocerca_radio_metros
+    )
+
+    # 3. Bloquear generación fuera de la geocerca
+    if distancia > radio_permitido:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"No puedes generar tu código QR fuera "
+                f"del área de trabajo. Estás a "
+                f"{int(distancia)} metros del invernadero."
+            )
+        )
+
+    # 4. Generar QR efímero
+    timestamp_actual = int(
+        time_module.time()
+    )
+
+    usuario_id = int(
+        current_user["sub"]
+    )
+
     firma = generar_firma_qr(
         usuario_id=usuario_id,
         timestamp=timestamp_actual
@@ -437,7 +483,13 @@ async def configurar_empresa(payload: EmpresaConfig, db: AsyncSession = Depends(
 
 @router.post("/asistencia/registrar", status_code=status.HTTP_201_CREATED)
 async def registrar_asistencia(
-    request: AsistenciaRegistrarRequest, 
+    request: AsistenciaRegistrarRequest,
+    current_user: dict = Depends(
+        PermitirRoles([
+            "Jefe Área",
+            "Oficina"
+        ])
+    ),
     db: AsyncSession = Depends(get_db)
 ):
     hoy = date.today()
@@ -511,6 +563,12 @@ async def obtener_reporte_asistencia(
     fecha_inicio: date,
     fecha_fin: date,
     worker_id: Optional[int] = None,
+    current_user: dict = Depends(
+        PermitirRoles([
+            "Jefe Área",
+            "Oficina"
+        ])
+    ),
     db: AsyncSession = Depends(get_db)
 ):
     # 1. Traer los registros (busca un día extra por si el UTC saltó el día)
@@ -610,8 +668,14 @@ async def obtener_reporte_asistencia(
 @router.post("/permisos", response_model=PermisoResponse)
 async def registrar_permiso(
     request: PermisoCreateRequest,
+    current_user: dict = Depends(
+        PermitirRoles([
+            "Jefe Área",
+            "Oficina"
+        ])
+    ),
     db: AsyncSession = Depends(get_db)
-    ):
+):
     # Creamos el objeto con los datos que llegan de la petición
     nuevo_permiso = PermisoAsistencia(
         worker_id=request.worker_id,
@@ -629,9 +693,84 @@ async def registrar_permiso(
         }
 
 #endpoint de empleados
+@router.get(
+    "/empleados",
+    response_model=ListaEmpleadosResponse
+)
+async def listar_empleados(
+    current_user: dict = Depends(
+        PermitirRoles([
+            "Jefe Área",
+            "Oficina"
+        ])
+    ),
+    db: AsyncSession = Depends(get_db)
+):
+    resultado = await db.execute(
+        select(
+            Usuario,
+            ExpedienteTrabajador
+        )
+        .join(
+            ExpedienteTrabajador,
+            ExpedienteTrabajador.usuario_id
+            == Usuario.id_usuario
+        )
+        .order_by(Usuario.nombre)
+    )
+
+    filas = resultado.all()
+
+    empleados = []
+
+    for usuario, expediente in filas:
+
+        rol_texto = (
+            usuario.rol.value
+            if hasattr(usuario.rol, "value")
+            else str(usuario.rol)
+        )
+
+        rol_comparacion = (
+            rol_texto
+            .strip()
+            .lower()
+            .replace("_", " ")
+        )
+
+        # No mostramos supervisores ni personal
+        # administrativo como trabajadores.
+        if rol_comparacion in {
+            "oficina",
+            "jefe área",
+            "jefe area",
+            "administrador"
+        }:
+            continue
+
+        empleados.append(
+            EmpleadoListaItem(
+                id_empleado=usuario.id_usuario,
+                nombre_completo=usuario.nombre,
+                rol=rol_texto,
+                departamento=expediente.area_rol,
+                estatus=expediente.estatus
+            )
+        )
+
+    return ListaEmpleadosResponse(
+        data=empleados
+    )
+
 @router.get("/empleados/me", response_model=PerfilEmpleadoResponse)
 async def obtener_perfil_empleado(
-    current_user: dict = Depends(PermitirRoles(["Jefe Área", "Oficina"])),
+    current_user: dict = Depends(
+        PermitirRoles([
+            "Usuario",
+            "Jefe Área",
+            "Oficina"
+        ])
+    ),
     db: AsyncSession = Depends(get_db)
 ):
     usuario_id = int(current_user["sub"])

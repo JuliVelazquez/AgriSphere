@@ -60,6 +60,8 @@ class Invernadero(Base):
     responsable = Column(String, nullable=True)
     empresa_id = Column(Integer, ForeignKey("empresas.id"), nullable=True)
 
+
+
 class MonitoreoPlagas(Base):
     __tablename__ = "monitoreos_plagas"
 
