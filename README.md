@@ -85,6 +85,149 @@ También se recomienda utilizar:
 
 ---
 
+# Infraestructura requerida para despliegue
+
+Para el despliegue de AgriSphere en un entorno remoto se propone utilizar un servidor Linux con Docker y Docker Compose.
+
+La arquitectura prevista es:
+
+```text
+Aplicación Android
+        │
+        │ HTTPS
+        ▼
+Subdominio público
+        │
+        ▼
+      Caddy
+ Reverse Proxy / TLS
+        │
+        ▼
+     FastAPI
+        │
+        ▼
+   PostgreSQL
+```
+
+Los servicios de FastAPI, PostgreSQL y Caddy se ejecutarán de forma independiente mediante Docker Compose.
+
+## Tecnologías requeridas
+
+- Linux Server.
+- Docker Engine.
+- Docker Compose.
+- FastAPI.
+- PostgreSQL.
+- Caddy como reverse proxy.
+- Git para obtener y actualizar el código desde el repositorio.
+- HTTPS/TLS para la comunicación con la aplicación Android.
+
+## Acceso requerido
+
+Para realizar y mantener el despliegue se requiere:
+
+- acceso SSH al servidor con permisos suficientes para administrar los servicios del proyecto;
+- acceso a Docker y Docker Compose;
+- posibilidad de clonar o actualizar el repositorio Git;
+- capacidad de consultar logs y reiniciar los servicios;
+- configuración de las variables de entorno del backend.
+
+## Conectividad
+
+El servidor deberá contar con conectividad hacia Internet.
+
+Para exponer la API se requiere:
+
+- una dirección IP pública o mecanismo equivalente de exposición;
+- un subdominio destinado a la API de AgriSphere;
+- configuración DNS del subdominio hacia el servidor;
+- acceso público mediante HTTPS en el puerto 443.
+
+Caddy será utilizado como punto de entrada HTTPS y reverse proxy hacia FastAPI.
+
+FastAPI y PostgreSQL no requieren exposición directa a Internet.
+
+La comunicación interna prevista es:
+
+```text
+Internet
+   │
+   ▼
+Caddy :443
+   │
+   ▼
+FastAPI :8000
+   │
+   ▼
+PostgreSQL :5432
+```
+
+Los puertos `8000` y `5432` deberán permanecer accesibles únicamente dentro del entorno del servidor o de la red interna de Docker.
+
+## Persistencia
+
+Debido a que los contenedores pueden ser reemplazados durante una actualización, la información permanente deberá almacenarse mediante volúmenes persistentes.
+
+Se requiere persistencia para:
+
+- datos de PostgreSQL;
+- fotografías y evidencias de monitoreo almacenadas por el backend.
+
+De esta forma, una reconstrucción o actualización de los contenedores no eliminará la información del sistema.
+
+## Recursos sugeridos
+
+Para el entorno actual de pruebas y demostración se consideran suficientes, como referencia:
+
+```text
+2 vCPU
+4 GB RAM
+30–40 GB de almacenamiento
+```
+
+Estos valores no constituyen un requisito estricto y pueden ajustarse de acuerdo con la infraestructura disponible y las políticas de IObal.
+
+## Variables de entorno
+
+Las variables sensibles deberán configurarse directamente en el servidor y no almacenarse en el repositorio.
+
+Entre ellas:
+
+```text
+DATABASE_URL
+SECRET_KEY
+ALGORITHM
+ACCESS_TOKEN_EXPIRE_MINUTES
+```
+
+El archivo `.env` utilizado en producción deberá permanecer fuera del control de versiones.
+
+## Recuperación de contraseña
+
+Actualmente el flujo de recuperación mediante OTP está implementado, pero el envío del código por correo se encuentra simulado durante el desarrollo.
+
+Si se requiere habilitar el envío real de correos, será necesario proporcionar o configurar posteriormente un servicio SMTP o proveedor equivalente.
+
+## Despliegue
+
+La estrategia inicial prevista será mediante Docker Compose.
+
+El flujo general será:
+
+```text
+Repositorio Git
+      ↓
+Servidor Linux
+      ↓
+Docker Compose
+      ↓
+├── Caddy
+├── FastAPI
+└── PostgreSQL
+```
+
+En una etapa posterior puede integrarse un mecanismo de CI/CD, como GitHub Actions, si la infraestructura y el flujo de trabajo de IObal lo requieren.
+
 # Instalación
 
 ## 1. Clonar el repositorio
