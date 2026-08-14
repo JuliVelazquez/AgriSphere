@@ -20,6 +20,7 @@ class Usuario(Base):
     correo: Mapped[str | None] = mapped_column(String, unique=True, index=True, nullable=True)
     contraseña: Mapped[str] = mapped_column(String, nullable=False) # Contraseña encriptada
     rol: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.USUARIO, nullable=False)
+    telefono = Column(String(20), nullable=True)
 
     # Relación 1:1 hacia el Expediente (uselist=False garantiza que sea uno a uno)
     expediente: Mapped["ExpedienteTrabajador"] = relationship(

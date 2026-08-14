@@ -288,7 +288,9 @@ async def crear_usuario_oficina(payload: UsuarioCreateRequest, db: AsyncSession 
         usuario=payload.nombre_usuario,
         nombre=payload.nombre_usuario.replace("_", " ").title(),
         contraseña=hash_seguro,
-        rol="USUARIO"  # <-- Cambiamos payload.rol_asignado por "USUARIO" temporalmente
+        rol=payload.rol_asignado,
+        correo=payload.datos_contacto.email if payload.datos_contacto else None,
+        telefono=payload.datos_contacto.telefono if payload.datos_contacto else None
     )
     
     db.add(nuevo_usuario)
@@ -378,7 +380,9 @@ async def registrar_trabajador(
             nombre=payload.nombre_completo,
             usuario=payload.nombre_usuario,
             contraseña=hashed_password,
-            rol=payload.rol_asignado
+            rol=payload.rol_asignado,
+            correo=payload.expediente.email if payload.expediente else None,
+            telefono=payload.expediente.telefono if payload.expediente else None
         )
 
         db.add(nuevo_usuario)

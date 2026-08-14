@@ -64,12 +64,12 @@ class QRResponse(BaseModel):
 
 class DatosContacto(BaseModel):
     email: EmailStr = Field(..., examples=["juan@empresa.com"])
-    telefono: str = Field(..., examples=["3223456789"])
+    telefono: str = Field(..., examples=["3119876543"])
 
 class UsuarioCreateRequest(BaseModel):
     nombre_usuario: str = Field(..., examples=["figaro_ortiz"])
     password_plano: str = Field(..., examples=["Invernadero2026*"])
-    rol_asignado: str = Field(..., examples=["rol_rieg"])  # Se envía el ID del RBAC agrícola
+    rol_asignado: str = Field(..., examples=["USUARIO"])  # Se envía el ID del RBAC agrícola
     datos_contacto: DatosContacto
 
 class UsuarioCreateData(BaseModel):

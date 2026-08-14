@@ -8,11 +8,11 @@ from app.auth.models import Base, Usuario, UserRole
 from app.modulos.empresa.models import Empresa  # <--- Importamos tu nuevo modelo
 
 async def poblar_base_datos():
-    print("🌱 Conectando a PostgreSQL y verificando tablas...")
+    print("Conectando a PostgreSQL y verificando tablas...")
     # Al importar 'Empresa' arriba, esta línea automáticamente creará la nueva tabla
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    print("✅ Tablas verificadas/creadas.")
+    print("Tablas verificadas/creadas.")
 
     async with AsyncSessionLocal() as session:
         async with session.begin():
@@ -32,7 +32,8 @@ async def poblar_base_datos():
                     nombre="Julissa Velazquez",
                     usuario=usuario_test,
                     contraseña=hash_bytes.decode('utf-8'),
-                    rol=UserRole.USUARIO
+                    rol=UserRole.USUARIO,
+                    telefono=3111234567
                 )
                 session.add(nuevo_usuario)
                 await session.flush() # Para que nos genere su ID de inmediato
