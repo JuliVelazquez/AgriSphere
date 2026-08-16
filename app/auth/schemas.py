@@ -108,8 +108,8 @@ class ExpedienteBase(BaseModel):
     access_level: Optional[List[str]] = Field(default=[], examples=[["semillero", "invernadero_b"]])
     
     curp: Optional[str] = Field(None, max_length=18, examples=["ABC123456M100"])
-    telefono: Optional[str] = Field(None, examples=["3312345678"])
-    email: Optional[EmailStr] = Field(None, examples=["maria.lopez@ejemplo.com"])
+    telefono: str = Field(..., examples=["3221234567"])
+    email: EmailStr = Field(..., examples=["maria.lopez@agrisphere.com"])
     contacto: Optional[str] = Field(None, examples=["pajaritos 342 col alamos"])
     cp: Optional[str] = Field(None, examples=["98765"])
     

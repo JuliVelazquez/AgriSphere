@@ -17,12 +17,10 @@ class Usuario(Base):
     id_usuario: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     nombre: Mapped[str] = mapped_column(String, nullable=False)
     usuario: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False) # ej. empleado_01
-    correo: Mapped[str | None] = mapped_column(String, unique=True, index=True, nullable=True)
     contraseña: Mapped[str] = mapped_column(String, nullable=False) # Contraseña encriptada
     rol: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.USUARIO, nullable=False)
-    telefono = Column(String(20), nullable=True)
-
-    # Relación 1:1 hacia el Expediente (uselist=False garantiza que sea uno a uno)
+    correo: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
+    telefono: Mapped[str] = mapped_column(String(20), nullable=False)
     expediente: Mapped["ExpedienteTrabajador"] = relationship(
         "ExpedienteTrabajador", 
         back_populates="usuario_seguridad", 
@@ -51,7 +49,7 @@ class ExpedienteTrabajador(Base):
 
     # Datos Personales
     curp: Mapped[str | None] = mapped_column(String(18), unique=True, index=True, nullable=True)
-    telefono: Mapped[str | None] = mapped_column(String, nullable=True)
+    telefono: Mapped[str | None] = mapped_column(String(20), nullable=True)
     email: Mapped[str | None] = mapped_column(String, nullable=True)
     contacto: Mapped[str | None] = mapped_column(String, nullable=True)  # Domicilio
     cp: Mapped[str | None] = mapped_column(String, nullable=True)
