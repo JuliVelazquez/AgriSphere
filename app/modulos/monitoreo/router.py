@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from typing import Optional, List
 from datetime import date
 
@@ -19,7 +20,8 @@ from app.modulos.monitoreo.schemas import (
     HistorialResponse,
     ReporteMonitoreoCreate,
     CatalogoObservableResponse,
-    ZonaInvernaderoResponse
+    ZonaInvernaderoResponse,
+    DetalleMonitoreoResponse
 )
 from app.auth.utils import PermitirRoles
 
