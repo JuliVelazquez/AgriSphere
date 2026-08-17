@@ -85,6 +85,42 @@ async def obtener_historial_monitoreo(
         "message": "Historial obtenido correctamente",
         "data": reportes_db
     }
+
+@router.get(
+    "/reportes/{id_reporte}",
+    response_model=DetalleMonitoreoResponse
+)
+async def obtener_detalle_monitoreo(
+    id_reporte: int,
+    current_user: dict = Depends(
+        PermitirRoles(ROLES_MONITOREO)
+    ),
+    db: AsyncSession = Depends(get_db)
+):
+    resultado = await db.execute(
+        select(ReporteMonitoreo)
+        .options(
+            selectinload(ReporteMonitoreo.observables),
+            selectinload(ReporteMonitoreo.evidencias)
+        )
+        .where(
+            ReporteMonitoreo.id_reporte == id_reporte
+        )
+    )
+
+    reporte = resultado.scalar_one_or_none()
+
+    if reporte is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Reporte de monitoreo no encontrado"
+        )
+
+    return {
+        "status": "success",
+        "data": reporte
+    }
+
 @router.post("/reportes")
 async def crear_reporte_monitoreo(
     payload: ReporteMonitoreoCreate,

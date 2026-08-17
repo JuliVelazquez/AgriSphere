@@ -8,6 +8,7 @@ from app.auth.models import Usuario, ExpedienteTrabajador
 from app.modulos.dashboard.router import router as dashboard_router
 from app.modulos.monitoreo.router import router as monitoreo_router
 from app.modulos.escaner.router import router as escaner_router
+from fastapi.staticfiles import StaticFiles
 
 # manejo de inicio y apagado del servidor para crear tablas automáticamente
 @asynccontextmanager
@@ -24,6 +25,12 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
     root_path="/agrisphere"
+)
+
+app.mount(
+    "/static",
+    StaticFiles(directory="static"),
+    name="static"
 )
 
 # Registrar las rutas
