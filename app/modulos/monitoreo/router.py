@@ -58,7 +58,10 @@ async def obtener_historial_monitoreo(
     Permite filtrar opcionalmente por fecha, invernadero o usuario.
     """
     # 1. Consulta base 
-    query = select(ReporteMonitoreo) 
+    query = select(ReporteMonitoreo).order_by(
+    ReporteMonitoreo.fecha_registro.desc(),
+    ReporteMonitoreo.id_reporte.desc()
+)
 
     # 2. Filtros dinámicos 
     if fecha:
