@@ -61,7 +61,7 @@ async def obtener_historial_monitoreo(
     query = select(ReporteMonitoreo).order_by(
     ReporteMonitoreo.fecha_registro.desc(),
     ReporteMonitoreo.id_reporte.desc()
-)
+    )
 
     # 2. Filtros dinámicos 
     if fecha:
