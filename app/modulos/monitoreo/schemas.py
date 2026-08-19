@@ -31,6 +31,11 @@ class ReporteMonitoreoResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class HistorialResponse(BaseModel):
+    status: str
+    message: str
+    data: List[ReporteMonitoreoResponse]
+
 
 # ==========================================
 # DETALLE DE UN REPORTE
