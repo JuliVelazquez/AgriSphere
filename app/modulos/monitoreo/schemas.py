@@ -20,10 +20,16 @@ class ReporteMonitoreoResponse(BaseModel):
 
 
 # 2. Molde de la respuesta completa del historial
-class HistorialResponse(BaseModel):
-    status: str
-    message: str
-    data: List[ReporteMonitoreoResponse]
+class ReporteMonitoreoResponse(BaseModel):
+    id_reporte: int
+    fecha_registro: date
+    id_invernadero: int
+    id_usuario: int
+    nombre_usuario: str
+    nivel_infestacion: str
+
+    class Config:
+        from_attributes = True
 
 
 # ==========================================
