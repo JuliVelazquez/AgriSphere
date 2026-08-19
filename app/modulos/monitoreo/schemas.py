@@ -13,6 +13,7 @@ class ReporteMonitoreoResponse(BaseModel):
     fecha_registro: date
     id_invernadero: int
     id_usuario: int
+    nivel_infestacion: str
 
     class Config:
         from_attributes = True
