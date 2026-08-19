@@ -47,7 +47,10 @@ ROLES_MONITOREO = [
 # ==========================================
 # ENDPOINTS
 # ==========================================
-@router.get("/reportes/historial", response_model=HistorialResponse) 
+@router.get(
+    "/reportes/historial",
+    response_model=HistorialResponse
+)
 async def obtener_historial_monitoreo(
     fecha: Optional[date] = None,
     id_invernadero: Optional[int] = None,
@@ -57,11 +60,6 @@ async def obtener_historial_monitoreo(
     ),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    Obtiene el historial de reportes de monitoreo.
-    Permite filtrar opcionalmente por fecha, invernadero o usuario.
-    """
-    # 1. Consulta base 
     query = (
         select(
             ReporteMonitoreo,
@@ -75,29 +73,30 @@ async def obtener_historial_monitoreo(
             ReporteMonitoreo.fecha_registro.desc(),
             ReporteMonitoreo.id_reporte.desc()
         )
-    ).order_by(
-    ReporteMonitoreo.fecha_registro.desc(),
-    ReporteMonitoreo.id_reporte.desc()
     )
 
-    # 2. Filtros dinámicos 
     if fecha:
-        query = query.where(ReporteMonitoreo.fecha_registro == fecha)
-        
-    if id_invernadero:
-        query = query.where(ReporteMonitoreo.id_invernadero == id_invernadero)
-        
-    if id_usuario:
-        query = query.where(ReporteMonitoreo.id_usuario == id_usuario)
+        query = query.where(
+            ReporteMonitoreo.fecha_registro == fecha
+        )
 
-    # 3. Ejecución real en la base de datos asíncrona
-    result = await db.execute(query)
-    filas = result.all()
+    if id_invernadero:
+        query = query.where(
+            ReporteMonitoreo.id_invernadero == id_invernadero
+        )
+
+    if id_usuario:
+        query = query.where(
+            ReporteMonitoreo.id_usuario == id_usuario
+        )
+
+    resultado = await db.execute(query)
+
+    filas = resultado.all()
 
     reportes = []
 
     for reporte, nombre_usuario in filas:
-
         reportes.append({
             "id_reporte": reporte.id_reporte,
             "fecha_registro": reporte.fecha_registro,
