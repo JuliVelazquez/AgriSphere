@@ -55,6 +55,7 @@ class ReporteMonitoreoDetalleData(BaseModel):
     fecha_registro: date
     id_invernadero: int
     id_usuario: int
+    nombre_usuario: str
 
     zona: str
     seccion: str

@@ -25,6 +25,8 @@ from app.modulos.monitoreo.schemas import (
 )
 from app.auth.utils import PermitirRoles
 
+from app.auth.models import Usuario
+
 import os
 import uuid
 import shutil
@@ -60,7 +62,20 @@ async def obtener_historial_monitoreo(
     Permite filtrar opcionalmente por fecha, invernadero o usuario.
     """
     # 1. Consulta base 
-    query = select(ReporteMonitoreo).order_by(
+    query = (
+        select(
+            ReporteMonitoreo,
+            Usuario.nombre
+        )
+        .join(
+            Usuario,
+            Usuario.id_usuario == ReporteMonitoreo.id_usuario
+        )
+        .order_by(
+            ReporteMonitoreo.fecha_registro.desc(),
+            ReporteMonitoreo.id_reporte.desc()
+        )
+    ).order_by(
     ReporteMonitoreo.fecha_registro.desc(),
     ReporteMonitoreo.id_reporte.desc()
     )
@@ -76,14 +91,26 @@ async def obtener_historial_monitoreo(
         query = query.where(ReporteMonitoreo.id_usuario == id_usuario)
 
     # 3. Ejecución real en la base de datos asíncrona
-    result = await db.execute(query) 
-    reportes_db = result.scalars().all() 
+    result = await db.execute(query)
+    filas = result.all()
 
-    # 4. Retorno de la información
+    reportes = []
+
+    for reporte, nombre_usuario in filas:
+
+        reportes.append({
+            "id_reporte": reporte.id_reporte,
+            "fecha_registro": reporte.fecha_registro,
+            "id_invernadero": reporte.id_invernadero,
+            "id_usuario": reporte.id_usuario,
+            "nombre_usuario": nombre_usuario,
+            "nivel_infestacion": reporte.nivel_infestacion
+        })
+
     return {
         "status": "success",
         "message": "Historial obtenido correctamente",
-        "data": reportes_db
+        "data": reportes
     }
 
 @router.get(
@@ -98,7 +125,14 @@ async def obtener_detalle_monitoreo(
     db: AsyncSession = Depends(get_db)
 ):
     resultado = await db.execute(
-        select(ReporteMonitoreo)
+        select(
+            ReporteMonitoreo,
+            Usuario.nombre
+        )
+        .join(
+            Usuario,
+            Usuario.id_usuario == ReporteMonitoreo.id_usuario
+        )
         .options(
             selectinload(ReporteMonitoreo.observables),
             selectinload(ReporteMonitoreo.evidencias)
@@ -108,17 +142,35 @@ async def obtener_detalle_monitoreo(
         )
     )
 
-    reporte = resultado.scalar_one_or_none()
+    fila = resultado.first()
 
-    if reporte is None:
+    if fila is None:
         raise HTTPException(
             status_code=404,
             detail="Reporte de monitoreo no encontrado"
         )
 
+    reporte, nombre_usuario = fila
+
     return {
         "status": "success",
-        "data": reporte
+        "data": {
+            "id_reporte": reporte.id_reporte,
+            "fecha_registro": reporte.fecha_registro,
+            "id_invernadero": reporte.id_invernadero,
+            "id_usuario": reporte.id_usuario,
+            "nombre_usuario": nombre_usuario,
+            "zona": reporte.zona,
+            "seccion": reporte.seccion,
+            "temperatura": reporte.temperatura,
+            "humedad": reporte.humedad,
+            "tipo_observacion": reporte.tipo_observacion,
+            "especie_tipo": reporte.especie_tipo,
+            "nivel_infestacion": reporte.nivel_infestacion,
+            "notas": reporte.notas,
+            "observables": reporte.observables,
+            "evidencias": reporte.evidencias
+        }
     }
 
 @router.post("/reportes")

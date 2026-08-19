@@ -1,67 +1,96 @@
 import asyncio
-import hashlib
-import base64
-import bcrypt
+
 from sqlalchemy.future import select
+
 from app.database import AsyncSessionLocal, engine
 from app.auth.models import Base, Usuario, UserRole
-from app.modulos.empresa.models import Empresa  # <--- Importamos tu nuevo modelo
+from app.auth.utils import encriptar_password
+from app.modulos.empresa.models import Empresa
+
 
 async def poblar_base_datos():
     print("Conectando a PostgreSQL y verificando tablas...")
-    # Al importar 'Empresa' arriba, esta línea automáticamente creará la nueva tabla
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
     print("Tablas verificadas/creadas.")
 
     async with AsyncSessionLocal() as session:
         async with session.begin():
-            
-            # --- 1. SECCIÓN DE USUARIOS ---
+
+            # Usuario inicial
             usuario_test = "julissa_rieg"
-            query_usr = select(Usuario).where(Usuario.usuario == usuario_test)
-            resultado_usr = await session.execute(query_usr)
+
+            resultado_usr = await session.execute(
+                select(Usuario).where(
+                    Usuario.usuario == usuario_test
+                )
+            )
+
             usuario_existente = resultado_usr.scalar_one_or_none()
-            
+
             if not usuario_existente:
-                password_bytes = "lalala".encode('utf-8')
-                sal = bcrypt.gensalt()
-                hash_bytes = bcrypt.hashpw(password_bytes, sal)
-                
                 nuevo_usuario = Usuario(
                     nombre="Julissa Velazquez",
                     usuario=usuario_test,
-                    contraseña=hash_bytes.decode('utf-8'),
+                    contraseña=encriptar_password("lalala"),
                     rol=UserRole.USUARIO,
-                    telefono=3111234567
+                    correo="julissa.velazquez@agrisphere.com",
+                    telefono="3111234501"
                 )
+
                 session.add(nuevo_usuario)
-                await session.flush() # Para que nos genere su ID de inmediato
+                await session.flush()
+
                 id_julissa = nuevo_usuario.id_usuario
-                print(f"   + Usuario inyectado con éxito: {usuario_test}")
+
+                print(
+                    f"Usuario inicial creado: {usuario_test}"
+                )
+
             else:
                 id_julissa = usuario_existente.id_usuario
-                print("   o El usuario de prueba ya existe.")
 
-            # --- 2. SECCIÓN DE EMPRESA ---
-            query_emp = select(Empresa).where(Empresa.id == 1)
-            resultado_emp = await session.execute(query_emp)
+                print(
+                    "El usuario inicial ya existe."
+                )
+
+            # Configuración inicial de empresa
+            resultado_emp = await session.execute(
+                select(Empresa).where(
+                    Empresa.id == 1
+                )
+            )
+
             empresa_existente = resultado_emp.scalar_one_or_none()
 
             if not empresa_existente:
-                print("Creando la configuración inicial de la Empresa...")
                 nueva_empresa = Empresa(
-                    nombre="AgroCorp Demo",
+                    nombre="Invernadero AgriSphere Local",
                     ubicacion="Tepic, Nayarit",
                     tamano_hectareas=15.5,
-                    super_admin_id=id_julissa # Asignamos a Julissa como admin temporalmente
+                    super_admin_id=id_julissa,
+                    geocerca_latitud=21.5041,
+                    geocerca_longitud=-104.8945,
+                    geocerca_radio_metros=50
                 )
+
                 session.add(nueva_empresa)
-                print("   + Empresa generada con éxito.")
+
+                print(
+                    "Configuración inicial de empresa creada."
+                )
+
             else:
-                print("   o La empresa principal ya existe en los registros.")
-                
-    print("¡Sembrado de datos completado exitosamente!")
+                print(
+                    "La empresa principal ya existe."
+                )
+
+    print("Sembrado de datos completado.")
+
 
 if __name__ == "__main__":
-    asyncio.run(poblar_base_datos())
+    asyncio.run(
+        poblar_base_datos()
+    )
